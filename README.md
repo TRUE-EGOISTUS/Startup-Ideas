@@ -5,3 +5,4 @@
 2.  Николаев М.В (Дизайнер/Фронтенд-разработчик)
 3.  Остапенко М.В (Продуктовый маркетолог/Помощник в разработке продукта)
 
+[Ссылка на презентацию](https://www.figma.com/deck/9gwUiKoqSE4yZBLAGI7yoJ/Презентация-по-идее-гибриду?node-id=1-29&t=fEdhXiuRUFOfkpeu-0&scaling=min-zoom&content-scaling=fixed&page-id=0%3A1)
