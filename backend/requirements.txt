@@ -2,3 +2,7 @@ fastapi
 uvicorn[standard]
 asyncpg
 sqlalchemy
+alembic
+python-dotenv
+fastapi-users[sqlalchemy]
+email-validator
