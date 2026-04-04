@@ -7,14 +7,15 @@ from pydantic import BaseModel
 from app.models import User
 from app.database import SessionLocal
 import os
+from fastapi.security import OAuth2PasswordBearer
 
 Secret = os.getenv("SECRET_KEY", "3e535c0bd9b297d9b4d7870dcb169f0e")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated = "auto")
-
 router = APIRouter(prefix="/auth", tags=["auth"])
+reusable_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 def get_db():
     db = SessionLocal() 
@@ -38,6 +39,21 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode.update({"exp":expire})
     encoded_jwt = jwt.encode(to_encode, Secret, algorithm=ALGORITHM)
     return encoded_jwt
+
+def get_current_user(token: str = Depends(reusable_oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(status_code=401, detail="Invalid token")
+    try:
+        payload = jwt.decode(token, Secret, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
 # Pydantic-схемы
 class UserRegister(BaseModel):
     email: str
