@@ -24,7 +24,7 @@ services:
     volumes:
       - ./backend/app:/app/app
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/startup_db
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/startup_db
     depends_on:
       db:
         condition: service_healthy
