@@ -1,14 +1,13 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 from app.database import engine, Base
+from app.auth import router as auth_router
 import app.models
 
 app = FastAPI(title="Startup Hybrid API", version="1.0.0")
 
-@app.on_event("startup")
-async def create_tables():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+Base.metadata.create_all(bind = engine)
+app.include_router(auth_router)
 
 @app.get("/health")
 async def health():
@@ -16,7 +15,9 @@ async def health():
 
 @app.get("/db-check")
 async def db_check():
-    async with engine.connect() as conn:
-        result = await conn.execute(text("SELECT 1"))
+    from sqlalchemy import text
+    from app.database import engine
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT 1"))
         val = result.scalar()
     return {"database": "connected", "select": val}
