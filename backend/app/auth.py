@@ -4,7 +4,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from pydantic import BaseModel
-from app.models import User
+from app.models import User, UserRole
 from app.database import SessionLocal, get_db
 from app.config import settings
 import os
@@ -53,6 +53,7 @@ def get_current_user(token: str = Depends(reusable_oauth2_scheme), db: Session =
 class UserRegister(BaseModel):
     email: str
     password: str
+    role: UserRole
 
 class UserLogin(BaseModel):
     email: str
@@ -64,7 +65,7 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     if user:
         raise HTTPException(status_code=400, detail="Email already registered")
     hashed = get_password_hash(user_data.password)
-    new_user = User(email=user_data.email, hashed_password=hashed)
+    new_user = User(email=user_data.email, hashed_password=hashed, role = user_data.role)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)

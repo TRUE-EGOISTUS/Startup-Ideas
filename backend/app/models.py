@@ -1,7 +1,12 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import Enum as SQLEnum
+import enum
 from sqlalchemy.sql import func
 from app.database import Base
 
+class UserRole(str, enum.Enum):
+    SPECIALIST = "specialist"
+    COMPANY = "company"
 class User(Base):
     __tablename__ = "users"
 
@@ -22,3 +27,4 @@ class Task(Base):
     status = Column(String(20), default="open")  # open, in_progress, completed
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    role = Column(SQLEnum(UserRole), nullable=False, default= UserRole.SPECIALIST)
