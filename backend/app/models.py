@@ -27,6 +27,12 @@ class Task(Base):
     status = Column(String(20), default="open")  # open, in_progress, completed
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    reward = Column(Integer, nullable=True)
+    deadline = Column(DateTime(timezone=True), nullable=True)
+    visibility = Column(String(20), default="public")
+    execution_mode = Column(String(20), default="classic")
+    required_skills = Column(Text, nullable=True)
+    difficulty = Column(String(20), nullable=True)
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profiles"
     id = Column(Integer, primary_key=True)
@@ -35,7 +41,6 @@ class SpecialistProfile(Base):
     github_url = Column(String(200))
     portfolio = Column(Text)
     rating = Column(Float, default=0.0)
-
 class CompanyProfile(Base):
     __tablename__ = "company_profiles"
     id = Column(Integer, primary_key=True)
@@ -44,3 +49,22 @@ class CompanyProfile(Base):
     logo_url = Column(String(200))
     description = Column(Text)
     contact_info = Column(String(200))
+
+class TaskResponse(Base):
+    __tablename__ = "task_responses"
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    message = Column(Text)
+    status = Column(String(20), default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class TaskExecution(Base):
+    __tablename__ = "task_executions"
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    solution_url = Column(String(500))
+    feedback = Column(Text)
+    rating = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
