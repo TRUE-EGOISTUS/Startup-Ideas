@@ -6,12 +6,13 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 from app.models import User
 from app.database import SessionLocal
+from app.config import settings
 import os
 from fastapi.security import OAuth2PasswordBearer
 
-Secret = os.getenv("SECRET_KEY", "3e535c0bd9b297d9b4d7870dcb169f0e")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+Secret = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated = "auto")
 router = APIRouter(prefix="/auth", tags=["auth"])
