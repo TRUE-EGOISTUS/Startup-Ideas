@@ -4,10 +4,9 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from pydantic import BaseModel
-from app.models import User, UserRole
+from app.models import User, UserRole, SpecialistProfile, CompanyProfile
 from app.database import SessionLocal, get_db
 from app.config import settings
-import os
 from fastapi.security import OAuth2PasswordBearer
 
 Secret = settings.SECRET_KEY
@@ -67,9 +66,17 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     hashed = get_password_hash(user_data.password)
     new_user = User(email=user_data.email, hashed_password=hashed, role = user_data.role)
     db.add(new_user)
+    db.flush()
+
+    if new_user.role == UserRole.SPECIALIST:
+        profile = SpecialistProfile(user_id = new_user.id)
+    else:
+        profile = CompanyProfile(user_id = new_user.id)
+    db.add(profile)
+
     db.commit()
     db.refresh(new_user)
-    return {"id": new_user.id, "email": new_user.email}
+    return {"id": new_user.id, "email": new_user.email, "role": new_user.role}
 
 @router.post("/login")
 def login(user_data: UserLogin, db: Session = Depends(get_db)):
