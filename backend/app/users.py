@@ -2,18 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db
 from app.models import User
 from app.auth import get_current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+
 
 # Схема для ответа (без пароля)
 class UserResponse(BaseModel):
