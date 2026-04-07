@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
 from sqlalchemy import Enum as SQLEnum
 import enum
 from sqlalchemy.sql import func
@@ -17,7 +17,7 @@ class User(Base):
     is_superuser = Column(Boolean, default=False)
     is_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
-
+    role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.SPECIALIST)
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -27,4 +27,20 @@ class Task(Base):
     status = Column(String(20), default="open")  # open, in_progress, completed
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    role = Column(SQLEnum(UserRole), nullable=False, default= UserRole.SPECIALIST)
+class SpecialistProfile(Base):
+    __tablename__ = "specialist_profiles"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    skills = Column(Text)  # можно хранить JSON-список
+    github_url = Column(String(200))
+    portfolio = Column(Text)
+    rating = Column(Float, default=0.0)
+
+class CompanyProfile(Base):
+    __tablename__ = "company_profiles"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    company_name = Column(String(200))
+    logo_url = Column(String(200))
+    description = Column(Text)
+    contact_info = Column(String(200))
