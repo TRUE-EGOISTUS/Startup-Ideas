@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "3e535c0bd9b297d9b4d7870dcb169f0e"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     class Config:
         env_file = ".env"

@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, HTTPException, Form, Response, Request
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from pydantic import BaseModel, EmailStr
+from fastapi.security import OAuth2PasswordBearer
+from passlib.context import CryptContext
+from typing import Optional
+
+from app.schemas.user import UserCreate, UserRead
 from app.models import User, UserRole, SpecialistProfile, CompanyProfile
 from app.database import SessionLocal, get_db
 from app.config import settings
-from fastapi.security import OAuth2PasswordBearer
-from app.schemas.user import UserCreate, UserRead
 
 Secret = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
@@ -16,7 +19,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated = "auto")
 router = APIRouter(prefix="/auth", tags=["auth"])
-reusable_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 def verify_password(plain_password, hashed_password):
@@ -25,20 +27,28 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def create_access_token(data: dict, expires_delta: timedelta = None):
+def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp":expire})
-    encoded_jwt = jwt.encode(to_encode, Secret, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM) 
 
-def get_current_user(token: str = Depends(reusable_oauth2_scheme), db: Session = Depends(get_db)):
+def create_refresh_token(data: dict, expires_delta: timedelta = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp":expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def get_current_user_from_token(token: str, db: Session) -> User:
     credentials_exception = HTTPException(status_code=401, detail="Invalid token")
     try:
-        payload = jwt.decode(token, Secret, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email = payload.get("sub")
         if email is None:
             raise credentials_exception
@@ -49,10 +59,18 @@ def get_current_user(token: str = Depends(reusable_oauth2_scheme), db: Session =
         raise credentials_exception
     return user
 
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+     # Пытаемся получить access_token из cookies
+    token = request.cookies.get("access_token")
+    if not token:
+        # Если нет в cookies, пробуем взять из заголовка Authorization (для совместимости со Swagger)
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        else:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+    return get_current_user_from_token(token, db)
 # Pydantic-схема
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
 
 @router.post("/register", response_model=UserRead)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
@@ -76,6 +94,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login")
 def login(
+    response: Response,
     username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db)
@@ -83,5 +102,71 @@ def login(
     user = db.query(User).filter(User.email == username).first()
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
     access_token = create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+    refresh_token = create_refresh_token(data={"sub": user.email})
+
+    # Устанавливаем httpOnly cookies (secure=True в продакшене, SameSite=Lax)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        samesite="lax",
+        secure=False, # True, если HTTPS
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        samesite="lax",
+        secure=False, # True, если HTTPS
+    )
+    return {"message": "Logged in successfully"}
+
+# Эндпоинт получения текущего пользователя (защищён через cookie)
+@router.get("/me", response_model = UserRead)
+def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+# Эндпоинт обновления access_token через refresh_token
+@router.post("/refresh")
+def refresh_token(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No refresh token")
+    try:
+        payload = jwt.decode(refresh_token, Secret, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    new_access_token = create_access_token(data={"sub": user.email})
+    response.set_cookie(
+        key="access_token",
+        value=new_access_token,
+        httponly=True,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        samesite="lax",
+        secure=False,
+    )
+    return {"message": "Access token refreshed"}
+
+# Эндпоинт логаута (очищает cookies)
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+    return {"message": "Logged out"}
