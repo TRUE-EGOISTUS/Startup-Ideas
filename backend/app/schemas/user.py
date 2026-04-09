@@ -16,6 +16,9 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
+class UserUpdate(UserBase):
+    email: Optional[EmailStr] = None
+
 class UserRead(UserBase):
     id: int
     is_active: bool
@@ -46,3 +49,15 @@ class CompanyProfileRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+# для обновления профилей (потом можно расширить)
+class SpecialistProfileUpdate(BaseModel):
+    skills: Optional[str] = None
+    github_url: Optional[str] = None
+    portfolio: Optional[str] = None
+
+class CompanyProfileUpdate(BaseModel):
+    company_name: Optional[str] = None
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    contact_info: Optional[str] = None
