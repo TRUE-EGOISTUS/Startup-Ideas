@@ -35,9 +35,32 @@ def create_task(
 
 @router.get("/")
 def get_tasks(
+    db: Session = Depends(get_db),
+    status: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    min_reward: Optional[int] = None,
+    max_reward: Optional[int] = None,
+    search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
 ):
-    tasks = db.query(Task).offset(skip).limit(limit).all()
+    query = db.query(Task)
+
+    if status:
+        query = query.filter(Task.status == status)
+    if difficulty:
+        query = query.filter(Task.difficulty == difficulty)
+    if min_reward is not None:
+        query = query.filter(Task.reward >= min_reward)
+    if max_reward:
+        query = query.filter(Task.reward <= max_reward)
+    if search:
+        query = query.filter(
+            or_(
+                Task.title.ilike(f"%{search}%"),
+                Task.description.ilike(f"%{search}%")
+            )
+        )
+    
+    tasks = query.offset(skip).limit(limit).all()
     return tasks
