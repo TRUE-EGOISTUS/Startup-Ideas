@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Foreign
 from sqlalchemy import Enum as SQLEnum
 import enum
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from app.database import Base
 
 class UserRole(str, enum.Enum):
@@ -17,7 +18,12 @@ class User(Base):
     is_superuser = Column(Boolean, default=False)
     is_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.SPECIALIST)
+
+    # связи
+    specialist_profile = relationship("SpecialistProfile", back_populates="user", uselist=False)
+    company_profile = relationship("CompanyProfile", back_populates="user", uselist=False)
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -41,6 +47,8 @@ class SpecialistProfile(Base):
     github_url = Column(String(200))
     portfolio = Column(Text)
     rating = Column(Float, default=0.0)
+    # связь
+    user = relationship("User", back_populates="specialist_profile")
 class CompanyProfile(Base):
     __tablename__ = "company_profiles"
     id = Column(Integer, primary_key=True)
@@ -49,7 +57,8 @@ class CompanyProfile(Base):
     logo_url = Column(String(200))
     description = Column(Text)
     contact_info = Column(String(200))
-
+    # связь
+    user = relationship("User", back_populates="company_profile")
 class TaskResponse(Base):
     __tablename__ = "task_responses"
     id = Column(Integer, primary_key=True)
