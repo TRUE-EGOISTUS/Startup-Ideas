@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Form
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from app.models import User, UserRole, SpecialistProfile, CompanyProfile
 from app.database import SessionLocal, get_db
 from app.config import settings
 from fastapi.security import OAuth2PasswordBearer
+from app.schemas.user import UserCreate, UserRead
 
 Secret = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
@@ -48,18 +49,13 @@ def get_current_user(token: str = Depends(reusable_oauth2_scheme), db: Session =
         raise credentials_exception
     return user
 
-# Pydantic-схемы
-class UserRegister(BaseModel):
-    email: str
-    password: str
-    role: UserRole
-
+# Pydantic-схема
 class UserLogin(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
-@router.post("/register")
-def register(user_data: UserRegister, db: Session = Depends(get_db)):
+@router.post("/register", response_model=UserRead)
+def register(user_data: UserCreate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == user_data.email).first()
     if user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -76,12 +72,16 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(new_user)
-    return {"id": new_user.id, "email": new_user.email, "role": new_user.role}
+    return new_user
 
 @router.post("/login")
-def login(user_data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == user_data.email).first()
-    if not user or not verify_password(user_data.password, user.hashed_password):
+def login(
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.email == username).first()
+    if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
