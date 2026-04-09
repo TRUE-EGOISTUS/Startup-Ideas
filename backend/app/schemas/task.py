@@ -28,3 +28,12 @@ class TaskResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class TaskFilter(BaseModel):
+    status: Optional[str] = None
+    difficulty: Optional[str] = None
+    min_reward: Optional[int] = None
+    max_reward: Optional[int] = None
+    search: Optional[str] = None
+    skip: int = 0
+    limit: int = 100
