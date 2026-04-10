@@ -15,6 +15,8 @@ from app.schemas.task import (
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+from datetime import datetime, timezone, timedelta
+
 @router.post("/", response_model=TaskResponseSchema)
 def create_task(
     task_data: TaskCreate,
@@ -23,17 +25,30 @@ def create_task(
 ):
     if current_user.role != UserRole.COMPANY:
         raise HTTPException(status_code=403, detail="Only companies can create tasks")
+    
+    deadline_utc = None
+    if task_data.deadline:
+        # Если deadline пришёл без часового пояса, считаем его московским
+        if task_data.deadline.tzinfo is None:
+            # Добавляем московский пояс
+            msk_tz = timezone(timedelta(hours=3))
+            msk_dt = task_data.deadline.replace(tzinfo=msk_tz)
+            # Переводим в UTC
+            deadline_utc = msk_dt.astimezone(timezone.utc).replace(tzinfo=None)
+        else:
+            deadline_utc = task_data.deadline.astimezone(timezone.utc).replace(tzinfo=None)
+    
     task = Task(
-        title=task_data.title,
-        description=task_data.description,
-        author_id=current_user.id,
-        reward=task_data.reward,
-        deadline=task_data.deadline,
-        visibility=task_data.visibility,
-        execution_mode=task_data.execution_mode,
-        required_skills=task_data.required_skills,
-        difficulty=task_data.difficulty
-    )
+    title=task_data.title,
+    description=task_data.description,
+    author_id=current_user.id,
+    reward=task_data.reward,
+    deadline=deadline_utc,
+    visibility=task_data.visibility,
+    execution_mode=task_data.execution_mode,
+    required_skills=task_data.required_skills,
+    difficulty=task_data.difficulty
+)
     db.add(task)
     db.commit()
     db.refresh(task)
