@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy import or_
 from app.database import SessionLocal, get_db
 from app.models import User, Task, UserRole
 from app.auth import get_current_user
