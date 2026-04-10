@@ -24,6 +24,7 @@ class User(Base):
     # связи
     specialist_profile = relationship("SpecialistProfile", back_populates="user", uselist=False)
     company_profile = relationship("CompanyProfile", back_populates="user", uselist=False)
+    task_responses = relationship("TaskResponseModel", back_populates="user")
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -39,6 +40,11 @@ class Task(Base):
     execution_mode = Column(String(20), default="classic")
     required_skills = Column(Text, nullable=True)
     difficulty = Column(String(20), nullable=True)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Связи
+    responses = relationship("TaskResponseModel", back_populates="task")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profiles"
     id = Column(Integer, primary_key=True)
@@ -59,7 +65,7 @@ class CompanyProfile(Base):
     contact_info = Column(String(200))
     # связь
     user = relationship("User", back_populates="company_profile")
-class TaskResponse(Base):
+class TaskResponseModel(Base):
     __tablename__ = "task_responses"
     id = Column(Integer, primary_key=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
@@ -68,6 +74,9 @@ class TaskResponse(Base):
     status = Column(String(20), default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Связи
+    task = relationship("Task", back_populates="responses")
+    user = relationship("User", back_populates="task_responses")
 class TaskExecution(Base):
     __tablename__ = "task_executions"
     id = Column(Integer, primary_key=True)

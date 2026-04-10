@@ -12,7 +12,7 @@ class TaskCreate(BaseModel):
     required_skills: Optional[str] = None
     difficulty: Optional[str] = None
 
-class TaskResponse(BaseModel):
+class TaskResponseSchema(BaseModel):
     id: int
     title: str
     description: Optional[str]
@@ -37,3 +37,17 @@ class TaskFilter(BaseModel):
     search: Optional[str] = None
     skip: int = 0
     limit: int = 100
+
+class TaskResponseCreate(BaseModel):
+    message: str
+
+class TaskResponseOut(BaseModel):
+    id: int
+    task_id: int
+    user_id: int
+    message: Optional[str]
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
