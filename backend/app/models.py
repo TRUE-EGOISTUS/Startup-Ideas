@@ -26,6 +26,7 @@ class User(Base):
     company_profile = relationship("CompanyProfile", back_populates="user", uselist=False)
     task_responses = relationship("TaskResponseModel", back_populates="user")
     task_executions = relationship("TaskExecution", back_populates="user")
+    messages = relationship("Message", back_populates="user")
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -47,6 +48,7 @@ class Task(Base):
     responses = relationship("TaskResponseModel", back_populates="task")
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     executions = relationship("TaskExecution", back_populates="task")
+    messages = relationship("Message", back_populates="task")
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profiles"
     id = Column(Integer, primary_key=True)
@@ -92,3 +94,15 @@ class TaskExecution(Base):
 
     task = relationship("Task", back_populates="executions")
     user =relationship("User", back_populates="task_executions")
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+   # Связи
+    task = relationship("Task", back_populates="messages")
+    user = relationship("User", back_populates="messages") 
