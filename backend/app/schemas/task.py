@@ -51,3 +51,24 @@ class TaskResponseOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class TaskCompleteRequest(BaseModel):
+    solution_url: Optional[str] = None
+    comment: Optional[str] = None
+
+class TaskReviewRequest(BaseModel):
+    rating: int # 1-5
+    feedback: Optional[str] = None
+
+class TaskExecutionOut:
+    id: int
+    task_id: int
+    user_id: int
+    solution_url: Optional[str]
+    comment: Optional[str]
+    feedback: Optional[str]
+    rating: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
