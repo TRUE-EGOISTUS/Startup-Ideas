@@ -1,13 +1,11 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, computed_field
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
-class UserRole(str,Enum):
+class UserRole(str, Enum):
     SPECIALIST = "specialist"
     COMPANY = "company"
-
-# Базовые схемы
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -16,7 +14,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
-class UserUpdate(UserBase):
+class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
 
 class UserRead(UserBase):
@@ -25,8 +23,22 @@ class UserRead(UserBase):
     created_at: datetime
     updated_at: Optional[datetime]
 
+    @computed_field
+    @property
+    def created_at_msk(self) -> str:
+        msk = self.created_at + timedelta(hours=3)
+        return msk.isoformat(timespec='milliseconds')
+
+    @computed_field
+    @property
+    def updated_at_msk(self) -> Optional[str]:
+        if self.updated_at:
+            msk = self.updated_at + timedelta(hours=3)
+            return msk.isoformat(timespec='milliseconds')
+        return None
+
     class Config:
-        from_attributes = True # для совместимости с ORM
+        from_attributes = True# для совместимости с ORM
 
 class SpecialistProfileRead(BaseModel):
     id: int

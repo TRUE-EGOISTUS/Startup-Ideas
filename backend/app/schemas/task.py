@@ -2,11 +2,15 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+from pydantic import BaseModel, computed_field
+from typing import Optional
+from datetime import datetime, timedelta
+
 class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
     reward: Optional[int] = None
-    deadline: Optional[datetime] = None
+    deadline: Optional[datetime] = None   # клиент присылает московское время (наивное)
     visibility: str = "public"
     execution_mode: str = "classic"
     required_skills: Optional[str] = None
@@ -18,13 +22,27 @@ class TaskResponseSchema(BaseModel):
     description: Optional[str]
     status: str
     author_id: int
-    created_at: datetime
+    created_at: datetime   # UTC из БД
     reward: Optional[int]
-    deadline: Optional[datetime]
+    deadline: Optional[datetime]   # UTC из БД
     visibility: str
     execution_mode: str
     required_skills: Optional[str]
     difficulty: Optional[str]
+
+    @computed_field
+    @property
+    def created_at_msk(self) -> str:
+        msk = self.created_at + timedelta(hours=3)
+        return msk.isoformat(timespec='milliseconds')
+
+    @computed_field
+    @property
+    def deadline_msk(self) -> Optional[str]:
+        if self.deadline:
+            msk = self.deadline + timedelta(hours=3)
+            return msk.isoformat(timespec='milliseconds')
+        return None
 
     class Config:
         from_attributes = True
@@ -49,6 +67,12 @@ class TaskResponseOut(BaseModel):
     status: str
     created_at: datetime
 
+    @computed_field
+    @property
+    def created_at_msk(self) -> str:
+        msk = self.created_at + timedelta(hours=3)
+        return msk.isoformat(timespec='milliseconds')
+
     class Config:
         from_attributes = True
 
@@ -60,7 +84,7 @@ class TaskReviewRequest(BaseModel):
     rating: int # 1-5
     feedback: Optional[str] = None
 
-class TaskExecutionOut:
+class TaskExecutionOut(BaseModel):
     id: int
     task_id: int
     user_id: int
@@ -69,6 +93,12 @@ class TaskExecutionOut:
     feedback: Optional[str]
     rating: Optional[int]
     created_at: datetime
+
+    @computed_field
+    @property
+    def created_at_msk(self) -> str:
+        msk = self.created_at + timedelta(hours=3)
+        return msk.isoformat(timespec='milliseconds')
 
     class Config:
         from_attributes = True

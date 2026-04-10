@@ -52,15 +52,4 @@ def get_messages(
         Message.created_at > since_dt
     ).order_by(Message.created_at).all()
     
-    # Преобразуем UTC в московское время
-    result = []
-    for msg in messages:
-        msk_time = msg.created_at + timedelta(hours=3)
-        result.append({
-            "id": msg.id,
-            "task_id": msg.task_id,
-            "user_id": msg.user_id,
-            "text": msg.text,
-            "created_at": msk_time.isoformat(timespec='milliseconds')
-        })
-    return result
+    return messages

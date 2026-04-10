@@ -10,7 +10,7 @@ class MessageOut(BaseModel):
     task_id: int
     user_id: int
     text: str
-    created_at: datetime
+    created_at: datetime   # UTC
 
     @computed_field
     @property

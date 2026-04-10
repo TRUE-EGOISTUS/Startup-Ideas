@@ -1,13 +1,14 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
+from datetime import datetime, timezone
 from sqlalchemy import Enum as SQLEnum
 import enum
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
 class UserRole(str, enum.Enum):
     SPECIALIST = "specialist"
     COMPANY = "company"
+
 class User(Base):
     __tablename__ = "users"
 
@@ -17,8 +18,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     is_verified = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))   # исправлено
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.SPECIALIST)
 
     # связи
@@ -27,38 +28,39 @@ class User(Base):
     task_responses = relationship("TaskResponseModel", back_populates="user")
     task_executions = relationship("TaskExecution", back_populates="user")
     messages = relationship("Message", back_populates="user")
+
 class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)
     description = Column(Text)
-    status = Column(String(20), default="open")  # open, in_progress, completed
+    status = Column(String(20), default="open")
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     reward = Column(Integer, nullable=True)
-    deadline = Column(DateTime(timezone=True), nullable=True)
+    deadline = Column(DateTime, nullable=True)   # убрали timezone=True, храним наивный UTC
     visibility = Column(String(20), default="public")
     execution_mode = Column(String(20), default="classic")
     required_skills = Column(Text, nullable=True)
     difficulty = Column(String(20), nullable=True)
     assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    # Связи
     responses = relationship("TaskResponseModel", back_populates="task")
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     executions = relationship("TaskExecution", back_populates="task")
     messages = relationship("Message", back_populates="task")
+
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profiles"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    skills = Column(Text)  # можно хранить JSON-список
+    skills = Column(Text)
     github_url = Column(String(200))
     portfolio = Column(Text)
     rating = Column(Float, default=0.0)
-    # связь
     user = relationship("User", back_populates="specialist_profile")
+
 class CompanyProfile(Base):
     __tablename__ = "company_profiles"
     id = Column(Integer, primary_key=True)
@@ -67,8 +69,8 @@ class CompanyProfile(Base):
     logo_url = Column(String(200))
     description = Column(Text)
     contact_info = Column(String(200))
-    # связь
     user = relationship("User", back_populates="company_profile")
+
 class TaskResponseModel(Base):
     __tablename__ = "task_responses"
     id = Column(Integer, primary_key=True)
@@ -76,24 +78,24 @@ class TaskResponseModel(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text)
     status = Column(String(20), default="pending")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))   # исправлено
 
-    # Связи
     task = relationship("Task", back_populates="responses")
     user = relationship("User", back_populates="task_responses")
+
 class TaskExecution(Base):
     __tablename__ = "task_executions"
     id = Column(Integer, primary_key=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False) # исполнитель
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     solution_url = Column(String(500), nullable=True)
-    comment = Column(Text, nullable=True) # комментарий исполнителя при сдаче
-    feedback = Column(Text, nullable=True) # отзыв заказчика
-    rating = Column(Integer, nullable=True) # оценка заказчика от 1 до 5
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    comment = Column(Text, nullable=True)
+    feedback = Column(Text, nullable=True)
+    rating = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     task = relationship("Task", back_populates="executions")
-    user =relationship("User", back_populates="task_executions")
+    user = relationship("User", back_populates="task_executions")
 
 class Message(Base):
     __tablename__ = "messages"
@@ -101,8 +103,7 @@ class Message(Base):
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-   # Связи
     task = relationship("Task", back_populates="messages")
-    user = relationship("User", back_populates="messages") 
+    user = relationship("User", back_populates="messages")
