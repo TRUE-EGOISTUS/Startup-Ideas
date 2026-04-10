@@ -25,6 +25,7 @@ class User(Base):
     specialist_profile = relationship("SpecialistProfile", back_populates="user", uselist=False)
     company_profile = relationship("CompanyProfile", back_populates="user", uselist=False)
     task_responses = relationship("TaskResponseModel", back_populates="user")
+    task_executions = relationship("TaskExecution", back_populates="user")
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -45,6 +46,7 @@ class Task(Base):
     # Связи
     responses = relationship("TaskResponseModel", back_populates="task")
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    executions = relationship("TaskExecution", back_populates="task")
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profiles"
     id = Column(Integer, primary_key=True)
@@ -81,8 +83,12 @@ class TaskExecution(Base):
     __tablename__ = "task_executions"
     id = Column(Integer, primary_key=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    solution_url = Column(String(500))
-    feedback = Column(Text)
-    rating = Column(Integer, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False) # исполнитель
+    solution_url = Column(String(500), nullable=True)
+    comment = Column(Text, nullable=True) # комментарий исполнителя при сдаче
+    feedback = Column(Text, nullable=True) # отзыв заказчика
+    rating = Column(Integer, nullable=True) # оценка заказчика от 1 до 5
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    task = relationship("Task", back_populates="executions")
+    user =relationship("User", back_populates="task_executions")

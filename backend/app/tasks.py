@@ -3,9 +3,15 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from sqlalchemy import or_
 from app.database import get_db
-from app.models import User, Task, UserRole, TaskResponseModel
+from app.models import (
+    User, Task,
+    UserRole, TaskResponseModel,
+    TaskExecution )
 from app.auth import get_current_user
-from app.schemas.task import TaskCreate, TaskResponseSchema, TaskResponseCreate, TaskResponseOut
+from app.schemas.task import (
+     TaskCreate, TaskResponseSchema, 
+     TaskResponseCreate, TaskResponseOut, 
+     TaskCompleteRequest, TaskReviewRequest )
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -128,3 +134,68 @@ def accept_response(
     
     db.commit()
     return {"message": "Executor selected, task in progress"}
+
+@router.post("/{task_id}/complete")
+def complete_task(
+    task_id: int,
+    complete_data: TaskCompleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Только исполнитель задачи может завершить
+    task = db.query(Task).filter(Task.id == task_id, Task.assigned_to_id == current_user.id).first()
+    if not task:
+       raise HTTPException(status_code=404, detail="Task not found or you are not the executor")
+    if task.status != "in_progress":
+        raise HTTPException(status_code=400, detail="Task is not in progress")
+    
+    # Создаём запись выполнения
+    execution = TaskExecution(
+        task_id=task.id,
+        user_id=current_user.id,
+        solution_url=complete_data.solution_url,
+        comment=complete_data.comment 
+    )
+    db.add(execution)
+    task.status = "completed"
+    db.commit()
+    db.refresh(execution)
+    return {"message": "Task completed successfully", "execution_id": execution.id}
+
+@router.post("/{task_id}/review")
+def review_task(
+    task_id: int,
+    review_data: TaskReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    task = db.query(Task).filter(Task.id == task_id, Task.author_id == current_user.id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or not owned by you")
+    if task.status != "completed":
+        raise HTTPException(status_code=400, detail="Task is not completed yet")
+    if review_data.rating < 1 or review_data.rating > 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+
+    # Находим выполнение задачи (последнее)
+    execution = db.query(TaskExecution).filter(TaskExecution.task_id == task.id).order_by(TaskExecution.created_at.desc()).first()
+    if not execution:
+        raise HTTPException(status_code=404, detail="No execution found for this task")
+    
+    execution.rating = review_data.rating
+    execution.feedback = review_data.feedback
+
+    # Обновляем рейтинг исполнителя (среднее арифметическое)
+    specialist = execution.user
+    if specialist.role == UserRole.SPECIALIST:
+       # Получаем все оценки по всем выполненным задачам специалиста
+        all_ratings = db.query(TaskExecution.rating).filter(TaskExecution.user_id == specialist.id, TaskExecution.rating.isnot(None)).all()
+        ratings = [r[0] for r in all_ratings]
+        if ratings:
+            avg_rating = sum(ratings) / len(ratings)
+            specialist.specialist_profile.rating = avg_rating
+        else:
+            specialist.specialist_profile.rating = review_data.rating
+    db.commit()
+
+    return {"message": "Review submitted", "rating": review_data.rating} 
