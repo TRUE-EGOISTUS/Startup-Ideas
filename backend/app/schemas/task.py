@@ -92,8 +92,9 @@ class TaskExecutionOut(BaseModel):
     comment: Optional[str]
     feedback: Optional[str]
     rating: Optional[int]
+    status: str
     created_at: datetime
-
+    
     @computed_field
     @property
     def created_at_msk(self) -> str:
@@ -102,3 +103,8 @@ class TaskExecutionOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class OpenSolutionRequest(BaseModel):
+    solution_url: Optional[str]= None
+    comment: Optional[str] = None
+     
