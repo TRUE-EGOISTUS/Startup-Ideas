@@ -11,7 +11,7 @@ from app.auth import get_current_user
 from app.schemas.task import (
      TaskCreate, TaskResponseSchema, 
      TaskResponseCreate, TaskResponseOut, 
-     TaskCompleteRequest, TaskReviewRequest )
+     TaskCompleteRequest, TaskReviewRequest, OpenSolutionRequest, TaskExecutionOut)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -214,3 +214,116 @@ def review_task(
     db.commit()
 
     return {"message": "Review submitted", "rating": review_data.rating} 
+
+@router.post("/{task_id}/open-solution", response_model=TaskResponseOut)
+def submit_open_solution(
+    task_id: int,
+    solution_data: OpenSolutionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    
+    if current_user.role != UserRole.SPECIALIST:
+        raise HTTPException(status_code=403, detail="Only specialists can submit solutions")
+    
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task: 
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.execution_mode != "open":
+        raise HTTPException(status_code=400, detail="Task is not in open execution mode")
+    if task.status != "open":
+        raise HTTPException(status_code=400, detail="Task is not open for submissions")
+    
+    existing = db.query(TaskExecution).filter(
+        TaskExecution.task_id == task_id,
+        TaskExecution.user_id == current_user.id,
+        TaskExecution.status.in_(["pending", "accepted"])
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="You have already submitted a solution")
+    
+    execution = TaskExecution(
+        task_id=task_id,
+        user_id=current_user.id,
+        solution_url=solution_data.solution_url,
+        comment=solution_data.comment,
+        status="pending"
+    )
+    db.add(execution)
+    db.commit()
+    db.refresh(execution)
+    return execution
+
+@router.get("/{task_id}/solutions", response_model=list[TaskExecutionOut])
+def get_task_solutions(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if current_user.id != task.author_id:
+        raise HTTPException(status_code=403, detail="Only the task author can view solutions")
+    
+    solutions = db.query(TaskExecution).filter(TaskExecution.task_id == task_id).order_by(TaskExecution.created_at).all()
+    return solutions
+
+@router.put("/{task_id}/solutions/{execution_id}/accept")
+def accept_solution(
+    task_id: int,
+    execution_id: int,
+    rating: int,
+    feedback: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    task = db.query(Task).filter(Task.id == task_id, Task.author_id == current_user.id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or not iwned by you")
+    
+    execution = db.query(TaskExecution).filter(
+        TaskExecution.id == execution_id,
+        TaskExecution.task_id == task_id,
+        TaskExecution.status == "pending"
+    ).first()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Solution not found or already processed")
+    
+    if rating < 1 or rating > 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+    
+    execution.status = "accepted"
+    execution.rating = rating
+    execution.feedback = feedback
+
+    specialist = execution.user
+    if specialist.role == UserRole.SPECIALIST:
+        all_ratings = db.query(TaskExecution.rating).filter(
+            TaskExecution.user_id == specialist.id,
+            TaskExecution.rating.isnot(None)
+        ).all()
+        ratings = [r[0] for r in all_ratings]
+        if ratings:
+            avg_rating = sum(ratings) / len(ratings)
+            specialist.specialist_profile.rating = avg_rating
+        else:
+            specialist.specialist_profile.rating = rating
+
+    db.commit()
+    return {"message": "Solution accepted and rated"}
+
+@router.put("/{task_id}/close")
+def close_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    task = db.query(Task).filter(Task.id == task_id, Task.author_id == current_user.id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or not found by you")
+    if task.status != "open":
+        raise HTTPException(status_code=400, detail="Task is already closed or in progress")
+    task.status = "completed"
+    db.commit()
+    return {"message": "Task closed for further solutions"}

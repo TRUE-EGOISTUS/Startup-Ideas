@@ -59,6 +59,7 @@ class SpecialistProfile(Base):
     github_url = Column(String(200))
     portfolio = Column(Text)
     rating = Column(Float, default=0.0)
+    
     user = relationship("User", back_populates="specialist_profile")
 
 class CompanyProfile(Base):
@@ -69,6 +70,7 @@ class CompanyProfile(Base):
     logo_url = Column(String(200))
     description = Column(Text)
     contact_info = Column(String(200))
+    
     user = relationship("User", back_populates="company_profile")
 
 class TaskResponseModel(Base):
@@ -93,7 +95,8 @@ class TaskExecution(Base):
     feedback = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
+    status = Column(String(20), default="pending")
+    
     task = relationship("Task", back_populates="executions")
     user = relationship("User", back_populates="task_executions")
 
