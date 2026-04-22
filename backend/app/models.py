@@ -42,12 +42,15 @@ class Task(Base):
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     reward = Column(Integer, nullable=True)
-    deadline = Column(DateTime, nullable=True)   # убрали timezone=True, храним наивный UTC
+    deadline = Column(DateTime, nullable=True)   # общий дедлайн для open-задач
     visibility = Column(String(20), default="public")
     execution_mode = Column(String(20), default="classic")
     required_skills = Column(Text, nullable=True)
     difficulty = Column(String(20), nullable=True)
     assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # поля дедлайна для classic-задач
+    executor_deadline_minutes = Column(Integer, nullable=True) # срок в минутах
+    current_executor_deadline = Column(DateTime, nullable=True) # конкретная дата дедлайна текущего исполнителя
 
     responses = relationship("TaskResponseModel", back_populates="task")
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])

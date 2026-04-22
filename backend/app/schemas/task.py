@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
@@ -15,6 +15,7 @@ class TaskCreate(BaseModel):
     execution_mode: str = "classic"
     required_skills: Optional[str] = None
     difficulty: Optional[str] = None
+    executor_deadline_minutes: Optional[int] = Field(None, gt=0, description="Срок выполнения для исполнителя в минутах (только для classic задач)")
 
 class TaskResponseSchema(BaseModel):
     id: int
@@ -29,6 +30,8 @@ class TaskResponseSchema(BaseModel):
     execution_mode: str
     required_skills: Optional[str]
     difficulty: Optional[str]
+    executor_deadline_minutes: Optional[int] = None
+    current_executor_deadline: Optional[datetime] = None
 
     @computed_field
     @property
