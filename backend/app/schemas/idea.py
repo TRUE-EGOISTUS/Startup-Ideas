@@ -38,12 +38,14 @@ class IdeaResponse(BaseModel):
         from_attributes = True
 
 class IdeaResponseCreate(BaseModel):
+    role: str  # роль, на которую претендует откликнувшийся
     message: Optional[str] = None
 
 class IdeaResponseOut(BaseModel):
     id: int
     idea_id: int
     user_id: int
+    role: str
     message: Optional[str]
     status: str
     created_at: datetime
