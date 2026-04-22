@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
+from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
 from datetime import datetime, timezone
 from sqlalchemy import Enum as SQLEnum
 import enum
@@ -31,7 +31,7 @@ class User(Base):
     messages = relationship("Message", back_populates="user")
     idea_responses = relationship("IdeaResponse", back_populates="user")
     projects = relationship("ProjectMember", back_populates="user")
-    
+    project_messages = relationship("ProjectMessage", back_populates="user")
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -118,7 +118,9 @@ class Message(Base):
 
     task = relationship("Task", back_populates="messages")
     user = relationship("User", back_populates="messages")
-
+    __table_args__ = (
+        Index("idx_messages_task_id_created_at", "task_id", "created_at"),
+    )
 class Idea(Base):
     __tablename__ = "ideas"
     
@@ -163,7 +165,7 @@ class Project(Base):
     idea = relationship("Idea", back_populates="projects")
     creator = relationship("User", foreign_keys=[created_by])
     members = relationship("ProjectMember", back_populates="project")
-
+    messages = relationship("ProjectMessage", back_populates="project")
 class ProjectMember(Base):
     __tablename__ = "project_members"
 
@@ -175,3 +177,18 @@ class ProjectMember(Base):
 
     project = relationship("Project", back_populates="members")
     user = relationship("User", back_populates="projects")
+
+class ProjectMessage(Base):
+    __tablename__ = "project_messages"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    project = relationship("Project", back_populates="messages")
+    user = relationship("User", back_populates="project_messages")
+
+    __table_args__ = (
+        Index("idx_project_messages_project_id_created_at", "project_id", "created_at"),
+    )

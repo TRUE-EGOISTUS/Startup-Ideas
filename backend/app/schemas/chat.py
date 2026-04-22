@@ -11,6 +11,27 @@ class MessageOut(BaseModel):
     user_id: int
     text: str
     created_at: datetime   # UTC
+    sender_name: Optional[str] = None
+
+    @computed_field
+    @property
+    def created_at_msk(self) -> str:
+        msk = self.created_at + timedelta(hours=3)
+        return msk.isoformat(timespec='milliseconds')
+
+    class Config:
+        from_attributes = True
+
+class ProjectMessageCreate(BaseModel):
+    text: str
+
+class ProjectMessageOut(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    text: str
+    created_at: datetime
+    sender_name: Optional[str] = None
 
     @computed_field
     @property
