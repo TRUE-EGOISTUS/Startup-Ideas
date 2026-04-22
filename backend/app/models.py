@@ -122,11 +122,11 @@ class Idea(Base):
     
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
-    short_description = Column(String(500), nullable=False)
-    full_description = Column(Text, nullable=False)
+    short_description = Column(Text, nullable=False)
+    full_description = Column(Text, nullable=True)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     roles_needed = Column(Text, nullable=True)
-    tags = Column(Text, nullable= False)
+    tags = Column(Text, nullable=True)
     created_at = Column(DateTime, default= lambda: datetime.now(timezone.utc))
     status = Column(String(20), default="open")
 
@@ -141,6 +141,7 @@ class IdeaResponse(Base):
     idea_id = Column(Integer, ForeignKey("ideas.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=True)
+    role = Column(String(100), nullable=False) # роль, на которую претендует откликнувшийся (например, "frontend developer", "designer", "project manager")
     status = Column(String(20), default="pending")  # pending, accepted, rejected
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
