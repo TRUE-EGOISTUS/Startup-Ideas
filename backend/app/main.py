@@ -8,8 +8,13 @@ from app.users import router as users_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.chat import router as chat_router
 from app.ideas import router as ideas_router
+from fastapi.staticfiles import StaticFiles
+
 
 app = FastAPI(title="Startup Hybrid API", version="1.0.0")
+
+# Serve static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,

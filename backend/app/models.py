@@ -21,6 +21,7 @@ class User(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))   # исправлено
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.SPECIALIST)
+    username = Column(String(100), unique=True, nullable=False)
 
     # связи
     specialist_profile = relationship("SpecialistProfile", back_populates="user", uselist=False)
@@ -38,13 +39,13 @@ class Task(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)
     description = Column(Text)
-    status = Column(String(20), default="open")
-    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(20), default="open", index=True)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     reward = Column(Integer, nullable=True)
     deadline = Column(DateTime, nullable=True)   # общий дедлайн для open-задач
     visibility = Column(String(20), default="public")
-    execution_mode = Column(String(20), default="classic")
+    execution_mode = Column(String(20), default="classic", index=True)
     required_skills = Column(Text, nullable=True)
     difficulty = Column(String(20), nullable=True)
     assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -65,7 +66,8 @@ class SpecialistProfile(Base):
     github_url = Column(String(200))
     portfolio = Column(Text)
     rating = Column(Float, default=0.0)
-    
+    avatar_url = Column(String(500), nullable=True)
+
     user = relationship("User", back_populates="specialist_profile")
 
 class CompanyProfile(Base):
@@ -128,7 +130,7 @@ class Idea(Base):
     roles_needed = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
     created_at = Column(DateTime, default= lambda: datetime.now(timezone.utc))
-    status = Column(String(20), default="open")
+    status = Column(String(20), default="open", index=True)
 
     author = relationship("User", foreign_keys=[author_id])
     responses = relationship("IdeaResponse", back_populates="idea")
@@ -142,7 +144,7 @@ class IdeaResponse(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=True)
     role = Column(String(100), nullable=False) # роль, на которую претендует откликнувшийся (например, "frontend developer", "designer", "project manager")
-    status = Column(String(20), default="pending")  # pending, accepted, rejected
+    status = Column(String(20), default="pending", index=True)  # pending, accepted, rejected
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     idea = relationship("Idea", back_populates="responses")

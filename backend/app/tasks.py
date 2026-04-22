@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 from sqlalchemy import or_
 from app.database import get_db
@@ -105,6 +105,7 @@ def get_tasks(
     min_reward: Optional[int] = None,
     max_reward: Optional[int] = None,
     search: Optional[str] = None,
+    skill: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
 ):
@@ -124,7 +125,9 @@ def get_tasks(
                 Task.description.ilike(f"%{search}%")
             )
         )
-    tasks = query.offset(skip).limit(limit).all()
+    if skill:
+        query = query.filter(Task.required_skills.contains(skill))
+    tasks = query.options(selectinload(Task.author), selectinload(Task.responses)).offset(skip).limit(limit).all()
     return tasks
 
 @router.post("/{task_id}/responses", response_model=TaskResponseOut)

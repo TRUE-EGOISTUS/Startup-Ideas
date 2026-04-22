@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 from app.database import get_db
 from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole
@@ -40,7 +40,7 @@ def list_ideas(
     status: Optional[str] = "open",
     tag: Optional[str] = None
 ):
-    query = db.query(Idea)
+    query = db.query(Idea).options(selectinload(Idea.author))
     if status:
         query = query.filter(Idea.status == status)
     if tag:
