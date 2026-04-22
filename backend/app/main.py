@@ -7,6 +7,7 @@ from app.tasks import router as tasks_router
 from app.users import router as users_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.chat import router as chat_router
+from app.ideas import router as ideas_router
 
 app = FastAPI(title="Startup Hybrid API", version="1.0.0")
 
@@ -21,6 +22,7 @@ app.include_router(auth_router)
 app.include_router(tasks_router)
 app.include_router(users_router)
 app.include_router(chat_router)
+app.include_router(ideas_router)
 
 @app.get("/health")
 async def health():
