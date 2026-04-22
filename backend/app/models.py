@@ -57,6 +57,7 @@ class Task(Base):
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     executions = relationship("TaskExecution", back_populates="task")
     messages = relationship("Message", back_populates="task")
+    author = relationship("User", foreign_keys=[author_id])
 
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profiles"
