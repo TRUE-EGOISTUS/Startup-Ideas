@@ -13,15 +13,18 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    username: str 
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
+    username: Optional[str] = None
 
 class UserRead(UserBase):
     id: int
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime]
+    username: Optional[str]
 
     @computed_field
     @property
@@ -73,3 +76,7 @@ class CompanyProfileUpdate(BaseModel):
     description: Optional[str] = None
     logo_url: Optional[str] = None
     contact_info: Optional[str] = None
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str

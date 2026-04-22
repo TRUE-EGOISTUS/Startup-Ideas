@@ -1,14 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.models import User, UserRole
-from app.auth import get_current_user
+from app.auth import get_current_user, verify_password, get_password_hash
 from app.schemas.user import (
-    UserRead, UserUpdate, 
+    UserRead, UserUpdate, ChangePasswordRequest,
     SpecialistProfileRead, CompanyProfileRead, 
     SpecialistProfileUpdate, CompanyProfileUpdate)
+import os
+import uuid
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+UPLOAD_DIR = "static/uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.get("/me", response_model=UserRead)
 def get_me(current_user: User = Depends(get_current_user)):
@@ -21,17 +26,16 @@ def update_me(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Обновить профиль текущего пользователя"""
     if user_data.email is not None:
-        # Проверяем, не занят ли email другим пользователем
-        existing = db.query(User).filter(
-            User.email == user_data.email,
-            User.id != current_user.id
-        ).first()
+        existing = db.query(User).filter(User.email == user_data.email, User.id != current_user.id).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
         current_user.email = user_data.email
-    # позже добавим обновление других полей
+    if user_data.username is not None:
+        existing = db.query(User).filter(User.username == user_data.username, User.id != current_user.id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already taken")
+        current_user.username = user_data.username
     db.commit()
     return current_user
 
@@ -72,3 +76,43 @@ def update_company_profile(
     db.commit()
     db.refresh(profile)
     return profile
+
+@router.post("/me/change-password")
+def change_password(
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not verify_password(data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    current_user.hashed_password = get_password_hash(data.new_password)
+    db.commit()
+    return {"message": "Password changed"}
+
+@router.post("/me/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role == UserRole.SPECIALIST:
+        profile = current_user.specialist_profile
+    else:
+        profile = current_user.company_profile
+
+    ext = file.filename.split(".")[-1]
+    filename = f"{uuid.uuid4()}.{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    with open(filepath, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    if current_user.role == UserRole.SPECIALIST:
+        profile.avatar_url = f"/static/uploads/{filename}"
+    else:
+        profile.logo_url = f"/static/uploads/{filename}"
+
+    db.commit()
+    return {"url": profile.avatar_url if current_user.role == UserRole.SPECIALIST else profile.logo_url}
