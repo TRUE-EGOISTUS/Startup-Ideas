@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt, ExpiredSignatureError
 from datetime import datetime, timedelta
-from fastapi.security import OAuth2PasswordRequestForm
+
 
 from app.schemas.user import UserCreate, UserRead
 from app.models import User, UserRole, SpecialistProfile, CompanyProfile

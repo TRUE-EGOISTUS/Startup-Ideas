@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from sqlalchemy import text
 from app.database import engine, Base
 from app.auth import router as auth_router
 import app.models
