@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Startup Ideas — Главная</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="site-header">
+        <div class="logo">Startup Ideas</div>
+        <nav class="site-nav" aria-label="Основная навигация">
+          <a href="#popular">Популярное</a>
+          <a href="#skills">По навыкам</a>
+          <a href="#about">О платформе</a>
+        </nav>
+        <button class="btn btn-primary" type="button">Вход / регистрация</button>
+      </header>
+
+      <main class="site-main">
+        <section class="hero" id="about">
+          <div class="hero-copy">
+            <p class="eyebrow">Платформа для быстрых команд и задач</p>
+            <h1>Найди людей под идею или проект за пару дней</h1>
+            <p class="lead">
+              Соединяем работодателей, стартапы и талантливых специалистов в одном месте. Настраивайте
+              поиск, находите сильные профили и запускайте работу сразу.
+            </p>
+            <div class="hero-actions">
+              <button class="btn btn-ghost" type="button">Смотреть задачи</button>
+              <button class="btn btn-outline" type="button">Создать задачу</button>
+            </div>
+          </div>
+          <div class="hero-media" aria-hidden="true">
+            <div class="hero-card">
+              <div class="hero-card-title">Запуск MVP за 2 недели</div>
+              <div class="hero-card-meta">Команда из 4 специалистов</div>
+              <div class="hero-card-grid">
+                <div class="stat">
+                  <span class="stat-number">4.8</span>
+                  <span class="stat-label">Средний рейтинг</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-number">36</span>
+                  <span class="stat-label">Активных задач</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-number">12</span>
+                  <span class="stat-label">Новых команд</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="mode-switch" aria-label="Переключатель контента">
+          <input type="radio" name="mode" id="mode-seekers" checked />
+          <label for="mode-seekers" class="mode-pill">Соискателям</label>
+          <input type="radio" name="mode" id="mode-employers" />
+          <label for="mode-employers" class="mode-pill">Работодателям</label>
+        </section>
+
+        <section class="search-panel" aria-label="Поиск">
+          <div class="search-box">
+            <input type="text" placeholder="Поиск задач, ролей, навыков" />
+            <button class="btn btn-primary" type="button">Поиск</button>
+          </div>
+          <div class="search-hints">
+            <span>Примеры: Product Designer, React, финтех</span>
+          </div>
+        </section>
+
+        <section class="section" id="popular">
+          <div class="section-header">
+            <h2>Популярное</h2>
+            <p>Самые востребованные задачи и специалисты этой недели</p>
+          </div>
+
+          <div class="mode-content mode-seekers">
+            <div class="card-grid">
+              <article class="card">
+                <span class="tag">Product</span>
+                <h3>Product-дизайнер для финтеха</h3>
+                <p>UI/UX аудит и дизайн нового мобильного приложения.</p>
+                <div class="card-meta">Бюджет: 180 000 ₽ · Срок: 3 недели</div>
+              </article>
+              <article class="card">
+                <span class="tag">Frontend</span>
+                <h3>React-разработка маркетплейса</h3>
+                <p>Собрать каталог, карточки, фильтры и корзину.</p>
+                <div class="card-meta">Бюджет: 220 000 ₽ · Срок: 4 недели</div>
+              </article>
+              <article class="card">
+                <span class="tag">Marketing</span>
+                <h3>Growth-менеджер для SaaS</h3>
+                <p>Запуск воронки и тестирование каналов.</p>
+                <div class="card-meta">Бюджет: 140 000 ₽ · Срок: 1 месяц</div>
+              </article>
+            </div>
+          </div>
+
+          <div class="mode-content mode-employers">
+            <div class="card-grid">
+              <article class="card">
+                <span class="tag">Frontend</span>
+                <h3>Алина · Senior React</h3>
+                <p>9 лет опыта, проекты в e-commerce и edtech.</p>
+                <div class="card-meta">Рейтинг: 4.9 · 23 проекта</div>
+              </article>
+              <article class="card">
+                <span class="tag">Backend</span>
+                <h3>Михаил · Python / FastAPI</h3>
+                <p>Архитектура, оптимизация, DevOps в облаке.</p>
+                <div class="card-meta">Рейтинг: 4.8 · 17 проектов</div>
+              </article>
+              <article class="card">
+                <span class="tag">Product</span>
+                <h3>Елена · Product Manager</h3>
+                <p>Запуск MVP, аналитика, монетизация.</p>
+                <div class="card-meta">Рейтинг: 5.0 · 12 проектов</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="skills">
+          <div class="section-header">
+            <h2>Задачи по навыкам</h2>
+            <p>Подборки по направлениям для быстрого старта</p>
+          </div>
+
+          <div class="mode-content mode-seekers">
+            <div class="skills-grid">
+              <article class="skill-card">
+                <div class="skill-title">Фронтенд</div>
+                <p>React, Vue, дизайн-системы, анимации.</p>
+                <div class="skill-list">
+                  <span class="pill">3 задачи</span>
+                  <span class="pill">Средний бюджет 160k</span>
+                </div>
+              </article>
+              <article class="skill-card">
+                <div class="skill-title">Бэкенд</div>
+                <p>FastAPI, Node.js, архитектура микросервисов.</p>
+                <div class="skill-list">
+                  <span class="pill">4 задачи</span>
+                  <span class="pill">Средний бюджет 210k</span>
+                </div>
+              </article>
+              <article class="skill-card">
+                <div class="skill-title">Data / AI</div>
+                <p>ML pipelines, аналитика, LLM-решения.</p>
+                <div class="skill-list">
+                  <span class="pill">2 задачи</span>
+                  <span class="pill">Средний бюджет 300k</span>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div class="mode-content mode-employers">
+            <div class="skills-grid">
+              <article class="skill-card">
+                <div class="skill-title">Фронтенд</div>
+                <p>Специалисты по React, SSR, дизайн-системам.</p>
+                <div class="skill-list">
+                  <span class="pill">12 профилей</span>
+                  <span class="pill">Рейтинг 4.7+</span>
+                </div>
+              </article>
+              <article class="skill-card">
+                <div class="skill-title">Бэкенд</div>
+                <p>Python, Go, архитекторы с опытом масштабирования.</p>
+                <div class="skill-list">
+                  <span class="pill">9 профилей</span>
+                  <span class="pill">Рейтинг 4.8+</span>
+                </div>
+              </article>
+              <article class="skill-card">
+                <div class="skill-title">Product / Ops</div>
+                <p>Product-менеджеры, операционные лиды.</p>
+                <div class="skill-list">
+                  <span class="pill">6 профилей</span>
+                  <span class="pill">Рейтинг 4.9+</span>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="footer-grid">
+          <div>
+            <div class="logo">Startup Ideas</div>
+            <p>Создавайте команды, запускайте продукты, закрывайте задачи быстрее.</p>
+          </div>
+          <div>
+            <h4>Контакты</h4>
+            <p>hello@startup-ideas.ru</p>
+            <p>+7 (999) 123-45-67</p>
+          </div>
+          <div>
+            <h4>Соцсети</h4>
+            <div class="footer-links">
+              <a href="#">Telegram</a>
+              <a href="#">VK</a>
+              <a href="#">LinkedIn</a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-bottom">© 2026 Startup Ideas. Все права защищены.</div>
+      </footer>
+    </div>
+  </body>
+</html>
