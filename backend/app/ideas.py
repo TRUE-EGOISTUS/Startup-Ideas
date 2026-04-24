@@ -474,6 +474,8 @@ def get_my_projects(
         ProjectMember.user_id == current_user.id
     ).all()
     project_ids = [mp.project_id for mp in member_projects]
+    if not project_ids:
+        return []
     projects = db.query(Project).filter(Project.id.in_(project_ids)).all()
     return projects
 
