@@ -97,22 +97,33 @@ async def upload_avatar(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role == UserRole.SPECIALIST:
-        profile = current_user.specialist_profile
-    else:
-        profile = current_user.company_profile
+    ALLOWED_EXTENSIONS = {"image/jpeg", "image/png"}
+    MAX_SIZE = 5 * 1024 * 1024  # 5MB
 
-    ext = file.filename.split(".")[-1]
+    if file.content_type not in ALLOWED_EXTENSIONS:
+       raise HTTPException(status_code=415, detail="Unsupported file type")
+   
+   # Читаем содержимое, сразу контролируя размер
+    content = await file.read(MAX_SIZE + 1)
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="File too large")
+   
+   # Определяем расширение из content_type
+    ext = "jpg" if file.content_type == "image/jpeg" else "png"
     filename = f"{uuid.uuid4()}.{ext}"
     filepath = os.path.join(UPLOAD_DIR, filename)
+
     with open(filepath, "wb") as f:
-        content = await file.read()
         f.write(content)
 
+    # Сохраняем путь к аватару в профиле
     if current_user.role == UserRole.SPECIALIST:
+        profile = current_user.specialist_profile
         profile.avatar_url = f"/static/uploads/{filename}"
     else:
-        profile.logo_url = f"/static/uploads/{filename}"
-
+        profile = current_user.company_profile
+        profile.avatar_url = f"/static/uploads/{filename}"
+    
     db.commit()
-    return {"url": profile.avatar_url if current_user.role == UserRole.SPECIALIST else profile.logo_url}
+    url = profile.avatar_url if current_user.role == UserRole.SPECIALIST else profile.avatar_url
+    return {"avatar_url": url}
