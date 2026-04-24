@@ -106,11 +106,15 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login")
 def login(
     response: Response,
-    username: str = Form(...),   # email вводится в поле username
+    username: str = Form(...),   # Теперь это может быть email или username
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    user = db.query(User).filter(User.email == username).first()
+    # Пытаемся найти пользователя по email или username
+    user = db.query(User).filter(
+        (User.email == username) | (User.username == username)
+    ).first()
+
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
