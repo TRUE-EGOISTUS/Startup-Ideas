@@ -300,6 +300,53 @@ def review_task(
 
     return {"message": "Review submitted", "rating": review_data.rating} 
 
+@router.delete("/{task_id}/execution")
+def cancel_execution(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Только исполнитель задачи может отменить выполнение
+    task = db.query(Task).filter(
+        Task.id == task_id, 
+        Task.assigned_to_id == current_user.id
+        ).first()
+   
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or you are not the executor")
+    
+    if task.execution_mode != "classic":
+        raise HTTPException(status_code=400, detail="Only classic execution mode tasks can be cancelled by executor")
+
+    if task.status != "in_progress":
+        raise HTTPException(status_code=400, detail="Task is not in progress")
+    
+    # Проверяем, не истёк ли дедлайн (если истёк, то задача уже открыта для новых откликов, просто сообщаем об этом)
+    if _handle_executor_deadline(task, db):
+        db.refresh(task)
+        raise HTTPException(
+            status_code=400, 
+            detail="Deadline expired, task has been automatically reset"
+        )
+    # Если дедлайн не истёк, создаём запись об отказе
+    execution = TaskExecution(
+        task_id=task.id,
+        user_id=current_user.id,
+        solution_url=None,
+        comment="Исполнитель отказался от выполнения задачи",
+        status="submitted",
+        rating=None,
+        feedback="Отказ от выполнения"
+    )
+    db.add(execution)
+
+    task.assigned_to_id = None
+    task.current_executor_deadline = None
+    task.status = "ready_for_next"
+
+    db.commit()
+    return {"message": "You have been removed from the task, it is now open for new responses"}
+
 @router.post("/{task_id}/open-solution", response_model=TaskExecutionOut)
 def submit_open_solution(
     task_id: int,
