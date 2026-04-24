@@ -96,3 +96,25 @@ class ProjectMemberOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ProjectInviteCreate(BaseModel):
+    project_id: int
+    user_id: int
+    role: Optional[str] = None
+
+class ProjectInviteOut(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    role: Optional[str]
+    status: str
+    created_at: datetime
+
+    @computed_field
+    @property
+    def created_at_msk(self) -> str:
+        msk = self.created_at + timedelta(hours=3)
+        return msk.isoformat(timespec='milliseconds')
+
+    class Config:
+        from_attributes = True

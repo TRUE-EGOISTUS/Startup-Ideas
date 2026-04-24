@@ -167,6 +167,8 @@ class Project(Base):
     creator = relationship("User", foreign_keys=[created_by])
     members = relationship("ProjectMember", back_populates="project")
     messages = relationship("ProjectMessage", back_populates="project")
+    invites = relationship("ProjectInvite", back_populates="project")
+
 class ProjectMember(Base):
     __tablename__ = "project_members"
 
@@ -178,6 +180,21 @@ class ProjectMember(Base):
 
     project = relationship("Project", back_populates="members")
     user = relationship("User", back_populates="projects")
+
+class ProjectInvite(Base):
+    __tablename__ = "project_invites"
+
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    invited_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role = Column(String(100), nullable=True)
+    status = Column(String(20), default="pending")  # pending, accepted, rejected
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    project = relationship("Project", back_populates="invites")
+    inviter = relationship("User", foreign_keys=[invited_by])
+    invitee = relationship("User", foreign_keys=[user_id])
 
 class ProjectMessage(Base):
     __tablename__ = "project_messages"

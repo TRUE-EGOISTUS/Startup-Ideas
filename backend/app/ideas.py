@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 from app.database import get_db
-from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole
+from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, ProjectInvite
 from app.auth import get_current_user
 from app.schemas.idea import (
     IdeaCreate, IdeaUpdate, IdeaResponse as IdeaResponseSchema,
     IdeaResponseCreate, IdeaResponseOut,
-    ProjectCreate, ProjectOut, ProjectMemberOut
+    ProjectCreate, ProjectOut, ProjectMemberOut, ProjectInviteOut, ProjectInviteCreate
 )
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
@@ -339,16 +339,84 @@ def invite_to_project(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    existing = db.query(ProjectMember).filter(
+    
+    existing_member = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
         ProjectMember.user_id == user_id
     ).first()
-    if existing:
+    if existing_member:
         raise HTTPException(status_code=400, detail="User already in project")
-    member = ProjectMember(project_id=project_id, user_id=user_id, role=role)
-    db.add(member)
+    existing_invite = db.query(ProjectInvite).filter(
+        ProjectInvite.project_id == project_id,
+        ProjectInvite.user_id == user_id,
+        ProjectInvite.status == "pending"
+    ).first()
+    if existing_invite:
+        raise HTTPException(status_code=400, detail="User already invited")
+    
+    invite = ProjectInvite(
+        project_id=project_id, 
+        user_id=user_id, 
+        invited_by=current_user.id,
+        role=role,
+        status="pending"
+    )
+    db.add(invite)
     db.commit()
-    return {"message": "User invited successfully"}
+    db.refresh(invite)
+    return {"message": "Invitation sent", "invite_id": invite.id}
+
+@router.post("/projects/{project_id}/invite/{invite_id}/accept")
+def accept_project_invite(
+    project_id: int,
+    invite_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    invite = db.query(ProjectInvite).filter(
+        ProjectInvite.id == invite_id,
+        ProjectInvite.project_id == project_id,
+        ProjectInvite.user_id == current_user.id,
+        ProjectInvite.status == "pending"
+    ).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    
+    existing_member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == current_user.id
+    ).first()
+    if existing_member:
+        raise HTTPException(status_code=400, detail="You are already a member of this project")
+    
+    member = ProjectMember(
+        project_id=project_id, 
+        user_id=current_user.id, 
+        role=invite.role)
+    db.add(member)
+    invite.status = "accepted"
+    db.commit()
+    return {"message": "Invitation accepted and you are now a member of the project"}
+
+@router.post("/projects/{project_id}/invite/{invite_id}/reject")
+def reject_project_invite(
+    project_id: int,
+    invite_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    invite = db.query(ProjectInvite).filter(
+        ProjectInvite.id == invite_id,
+        ProjectInvite.project_id == project_id,
+        ProjectInvite.user_id == current_user.id,
+        ProjectInvite.status == "pending"
+    ).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    
+    invite.status = "rejected"
+    db.commit()
+    return {"message": "Invitation rejected"}
 
 @router.delete("/projects/{project_id}/members/me")
 def leave_project(
