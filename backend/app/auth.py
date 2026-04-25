@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, Form
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from jose import JWTError, jwt, ExpiredSignatureError
 from datetime import datetime, timedelta, timezone
@@ -75,10 +76,15 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
 # Pydantic-схема
 
 @router.post("/register", response_model=UserRead)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
+def register(
+    user_data: UserCreate, 
+    db: Session = Depends(get_db)
+    ):
+    
     existing_email = db.query(User).filter(User.email == user_data.email).first()
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
+    
     existing_username = db.query(User).filter(User.username == user_data.username).first()
     if existing_username:
         raise HTTPException(status_code=400, detail="Username already taken")
@@ -91,15 +97,24 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         role=user_data.role
     )
     db.add(new_user)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="User already exists")
 
     if new_user.role == UserRole.SPECIALIST:
         profile = SpecialistProfile(user_id=new_user.id)
     else:
         profile = CompanyProfile(user_id=new_user.id)
     db.add(profile)
-
-    db.commit()
+    
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Сould not complete registration, please try again")
+    
     db.refresh(new_user)
     return new_user
 
