@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Query, Session, selectinload
 from typing import Optional, List
 from app.database import get_db
 from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, ProjectInvite
@@ -495,3 +495,17 @@ def withdraw_interest(
     db.delete(response)
     db.commit()
     return {"message": "Response withdrawn"}
+
+@router.get("/my-responses", response_model=List[IdeaResponseOut])
+def get_my_idea_response(
+    status: Optional[str] = Query(None, description="Фильтр по статусу: pending, accepted, rejected"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(IdeaResponse).filter(IdeaResponse.user_id == current_user.id)
+    if status:
+        if status not in ["pending", "accepted", "rejected"]:
+            raise HTTPException(status_code=400, detail="Invalid status filter")
+        query = query.filter(IdeaResponse.status == status)
+    responses = query.order_by(IdeaResponse.created_at.desc()).all()
+    return responses
