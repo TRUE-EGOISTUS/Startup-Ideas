@@ -477,6 +477,86 @@ def accept_solution(
     db.commit()
     return {"message": "Solution accepted and rated"}
 
+@router.put("/{task_id}/solutions/{execution_id}/reject")
+def reject_solution(
+    task_id: int,
+    execution_id: int,
+    feedback: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.author_id == current_user.id
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or not owned by you")
+    if task.execution_mode != "open":
+        raise HTTPException(status_code=400, detail="This endpoint is only for open tasks")
+    if task.status not in ("open", "reviewing"):
+        raise HTTPException(status_code=400, detail="Task is not accepting solutions")
+
+    execution = db.query(TaskExecution).filter(
+        TaskExecution.id == execution_id,
+        TaskExecution.task_id == task_id,
+        TaskExecution.status == "pending"
+    ).first()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Solution not found or already processed")
+
+    execution.status = "rejected"
+    execution.feedback = feedback or "Решение отклонено автором задачи"
+
+    # Проверяем, остались ли ещё pending решения
+    pending_count = db.query(TaskExecution).filter(
+        TaskExecution.task_id == task_id,
+        TaskExecution.status == "pending"
+    ).count()
+    if pending_count == 0:
+        task.status = "closed"
+
+    db.commit()
+    return {"message": "Solution rejected", "task_status": task.status}
+
+@router.post("/{task_id}/solutions/reject-all")
+def reject_all_solutions(
+    task_id: int,
+    close_task: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.author_id == current_user.id
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or not owned by you")
+    if task.execution_mode != "open":
+        raise HTTPException(status_code=400, detail="This endpoint is only for open tasks")
+    if task.status not in ("open", "reviewing"):
+        raise HTTPException(status_code=400, detail="Task is not accepting solutions")
+
+    pending_solutions = db.query(TaskExecution).filter(
+        TaskExecution.task_id == task_id,
+        TaskExecution.status == "pending"
+    ).all()
+
+    if not pending_solutions:
+        raise HTTPException(status_code=404, detail="No pending solutions to reject")
+
+    for solution in pending_solutions:
+        solution.status = "rejected"
+        solution.feedback = "Решение отклонено автором задачи"
+
+    if close_task:
+        task.status = "closed"
+
+    db.commit()
+    return {
+        "message": f"Rejected {len(pending_solutions)} solution(s)",
+        "task_status": task.status
+    }
+
 @router.put("/{task_id}/close")
 def close_task(
     task_id: int,
