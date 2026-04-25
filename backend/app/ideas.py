@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Query, Session, selectinload
 from typing import Optional, List
 from app.database import get_db
@@ -34,6 +34,7 @@ def create_idea(
 
 @router.get("/", response_model=List[IdeaResponseSchema])
 def list_ideas(
+    response: Response,
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
@@ -45,7 +46,9 @@ def list_ideas(
         query = query.filter(Idea.status == status)
     if tag:
         query = query.filter(Idea.tags.contains(tag))
+    total = query.count()
     ideas = query.offset(skip).limit(limit).all()
+    response.headers["X-Total-Count"] = str(total)
     return ideas
 
 @router.get("/{idea_id}", response_model=IdeaResponseSchema)

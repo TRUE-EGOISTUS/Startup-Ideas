@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 from sqlalchemy import or_
@@ -99,6 +99,7 @@ def create_task(
 
 @router.get("/")
 def get_tasks(
+    response: Response,
     db: Session = Depends(get_db),
     status: Optional[str] = None,
     difficulty: Optional[str] = None,
@@ -127,7 +128,9 @@ def get_tasks(
         )
     if skill:
         query = query.filter(Task.required_skills.contains(skill))
+    total = query.count()
     tasks = query.options(selectinload(Task.author), selectinload(Task.responses)).offset(skip).limit(limit).all()
+    response.headers["X-Total-Count"] = str(total)
     return tasks
 
 @router.post("/{task_id}/responses", response_model=TaskResponseOut)
