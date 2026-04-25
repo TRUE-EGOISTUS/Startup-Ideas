@@ -31,6 +31,7 @@ def send_message(
     db.add(message)
     db.commit()
     db.refresh(message)
+    message.sender_name = current_user.username  # Добавляем имя отправителя для удобства
     return message
 
 @router.get("/", response_model=list[MessageOut])
@@ -61,6 +62,9 @@ def get_messages(
         Message.created_at > since_dt
     ).order_by(Message.created_at).offset(skip).limit(limit).all()
     
+    for msg in messages:
+        msg.sender_name = msg.user.username if msg.user else "Unknown"
+
     return messages
 
 @router.post("/projects/{project_id}/messages", response_model=ProjectMessageOut)
@@ -91,6 +95,7 @@ def send_project_message(
     db.add(message)
     db.commit()
     db.refresh(message)
+    message.sender_name = current_user.username
     return message
 
 @router.get("/projects/{project_id}/messages", response_model=list[ProjectMessageOut])
@@ -124,4 +129,7 @@ def get_project_messages(
         ProjectMessage.created_at > since_dt
     ).order_by(ProjectMessage.created_at).offset(skip).limit(limit).all()
     
+    for msg in messages:
+        msg.sender_name = msg.user.username if msg.user else "Unknown"
+
     return messages
