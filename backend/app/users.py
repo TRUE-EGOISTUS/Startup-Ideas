@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from app.database import SessionLocal, get_db
+from app.database import get_db
 from app.models import User, UserRole
 from app.auth import get_current_user, verify_password, get_password_hash
 from app.schemas.user import (
@@ -88,6 +88,7 @@ def change_password(
     if len(data.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     current_user.hashed_password = get_password_hash(data.new_password)
+    current_user.token_version += 1
     db.commit()
     return {"message": "Password changed"}
 
@@ -101,14 +102,14 @@ async def upload_avatar(
     MAX_SIZE = 5 * 1024 * 1024  # 5MB
 
     if file.content_type not in ALLOWED_EXTENSIONS:
-       raise HTTPException(status_code=415, detail="Unsupported file type")
-   
-   # Читаем содержимое, сразу контролируя размер
+        raise HTTPException(status_code=415, detail="Unsupported file type")
+
+    # Читаем содержимое, сразу контролируя размер
     content = await file.read(MAX_SIZE + 1)
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="File too large")
-   
-   # Определяем расширение из content_type
+
+    # Определяем расширение из content_type
     ext = "jpg" if file.content_type == "image/jpeg" else "png"
     filename = f"{uuid.uuid4()}.{ext}"
     filepath = os.path.join(UPLOAD_DIR, filename)

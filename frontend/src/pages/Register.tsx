@@ -20,11 +20,11 @@ export function RegisterPage() {
     <div className="min-h-[70vh] flex items-center justify-center">
       <Card className="max-w-md w-full" title="Регистрация">
         <Form layout="vertical" onFinish={onFinish}>
-          <Form.Item label="Email" name="email" rules={[{ required: true }]}> 
-            <Input type="email" />
+          <Form.Item label="Почта" name="email" rules={[{ required: true }]}> 
+            <Input type="email" placeholder="name@example.com" />
           </Form.Item>
-          <Form.Item label="Username" name="username" rules={[{ required: true }]}> 
-            <Input />
+          <Form.Item label="Имя пользователя" name="username" rules={[{ required: true }]}> 
+            <Input placeholder="Например, anna.dev" />
           </Form.Item>
           <Form.Item label="Пароль" name="password" rules={[{ required: true, min: 8 }]}> 
             <Input.Password />
@@ -32,8 +32,8 @@ export function RegisterPage() {
           <Form.Item label="Роль" name="role" rules={[{ required: true }]}> 
             <Select
               options={[
-                { value: "specialist", label: "Specialist" },
-                { value: "company", label: "Company" }
+                { value: "specialist", label: "Специалист" },
+                { value: "company", label: "Компания" }
               ]}
             />
           </Form.Item>

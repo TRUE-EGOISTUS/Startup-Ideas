@@ -4,9 +4,10 @@ from app.database import get_db
 from app.models import Task, Message, User, ProjectMessage, Project, ProjectMember
 from app.auth import get_current_user
 from app.schemas.chat import MessageCreate, MessageOut, ProjectMessageCreate, ProjectMessageOut
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/tasks/{task_id}/messages", tags=["chat"])
+project_router = APIRouter(prefix="/projects", tags=["project-chat"])
 
 @router.post("/", response_model=MessageOut)
 def send_message(
@@ -53,7 +54,7 @@ def get_messages(
     if since > 9999999999:
         since = since // 1000
     try:
-        since_dt = datetime.fromtimestamp(since) if since else datetime(1970, 1, 1)
+        since_dt = datetime.fromtimestamp(since, tz=timezone.utc).replace(tzinfo=None) if since else datetime(1970, 1, 1)
     except (ValueError, OSError):
         raise HTTPException(status_code=400, detail="Invalid 'since' timestamp")
     
@@ -67,7 +68,7 @@ def get_messages(
 
     return messages
 
-@router.post("/projects/{project_id}/messages", response_model=ProjectMessageOut)
+@project_router.post("/{project_id}/messages", response_model=ProjectMessageOut)
 def send_project_message(
     project_id: int,
     message_data: ProjectMessageCreate,
@@ -98,7 +99,7 @@ def send_project_message(
     message.sender_name = current_user.username
     return message
 
-@router.get("/projects/{project_id}/messages", response_model=list[ProjectMessageOut])
+@project_router.get("/{project_id}/messages", response_model=list[ProjectMessageOut])
 def get_project_messages(
     project_id: int,
     since: int = Query(0, description="Unix timestamp in seconds"),
@@ -120,7 +121,7 @@ def get_project_messages(
     if since > 9999999999:
         since = since // 1000
     try:
-        since_dt = datetime.fromtimestamp(since) if since else datetime(1970, 1, 1)
+        since_dt = datetime.fromtimestamp(since, tz=timezone.utc).replace(tzinfo=None) if since else datetime(1970, 1, 1)
     except (ValueError, OSError):
         raise HTTPException(status_code=400, detail="Invalid 'since' timestamp")
     

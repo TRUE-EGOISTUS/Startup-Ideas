@@ -20,8 +20,8 @@ export function LoginPage() {
     <div className="min-h-[70vh] flex items-center justify-center">
       <Card className="max-w-md w-full" title="Вход">
         <Form layout="vertical" onFinish={onFinish}>
-          <Form.Item label="Email" name="email" rules={[{ required: true }]}> 
-            <Input type="email" />
+          <Form.Item label="Почта" name="email" rules={[{ required: true }]}> 
+            <Input type="email" placeholder="name@example.com" />
           </Form.Item>
           <Form.Item label="Пароль" name="password" rules={[{ required: true }]}> 
             <Input.Password />

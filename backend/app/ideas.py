@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 from app.database import get_db
 from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, ProjectInvite
-from app.auth import get_current_user
+from app.auth import get_current_user, get_optional_user
 from app.schemas.idea import (
     IdeaCreate, IdeaUpdate, IdeaResponse as IdeaResponseSchema,
     IdeaResponseCreate, IdeaResponseOut,
@@ -39,7 +39,8 @@ def list_ideas(
     skip: int = 0,
     limit: int = 100,
     status: Optional[str] = "open",
-    tag: Optional[str] = None
+    tag: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     query = db.query(Idea).options(selectinload(Idea.author))
     if status:
@@ -49,21 +50,40 @@ def list_ideas(
     total = query.count()
     ideas = query.offset(skip).limit(limit).all()
     response.headers["X-Total-Count"] = str(total)
-    return ideas
+    result = []
+    for idea in ideas:
+        item = IdeaResponseSchema.model_validate(idea)
+        if not current_user or current_user.id != idea.author_id:
+            item = item.model_copy(update={"full_description": None})
+        result.append(item)
+    return result
+
+@router.get("/my-responses", response_model=List[IdeaResponseOut])
+def get_my_idea_response(
+    status: Optional[str] = Query(None, description="Фильтр по статусу: pending, accepted, rejected"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(IdeaResponse).filter(IdeaResponse.user_id == current_user.id)
+    if status:
+        if status not in ["pending", "accepted", "rejected"]:
+            raise HTTPException(status_code=400, detail="Invalid status filter")
+        query = query.filter(IdeaResponse.status == status)
+    return query.order_by(IdeaResponse.created_at.desc()).all()
 
 @router.get("/{idea_id}", response_model=IdeaResponseSchema)
 def get_idea(
     idea_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
-    # Если пользователь не автор, скрываем full_description
+    item = IdeaResponseSchema.model_validate(idea)
     if not current_user or current_user.id != idea.author_id:
-        idea.full_description = None
-    return idea
+        item = item.model_copy(update={"full_description": None})
+    return item
 
 @router.put("/{idea_id}", response_model=IdeaResponseSchema)
 def update_idea(
@@ -152,6 +172,10 @@ def respond_to_idea(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    existing_membership = db.query(ProjectMember).filter(ProjectMember.user_id == current_user.id).first()
+    if existing_membership:
+        raise HTTPException(status_code=400, detail="You are already a member of another project")
+
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
@@ -206,6 +230,10 @@ def accept_idea_response(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    author_membership = db.query(ProjectMember).filter(ProjectMember.user_id == current_user.id).first()
+    if author_membership:
+        raise HTTPException(status_code=400, detail="You are already a member of another project")
+
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
@@ -219,6 +247,10 @@ def accept_idea_response(
     ).first()
     if not response:
         raise HTTPException(status_code=404, detail="Response not found or already processed")
+
+    responder_membership = db.query(ProjectMember).filter(ProjectMember.user_id == response.user_id).first()
+    if responder_membership:
+        raise HTTPException(status_code=400, detail="User is already a member of another project")
     
     # Проверяем, нет ли уже принятого участника на эту роль в проекте
     project = db.query(Project).filter(Project.idea_id == idea_id).first()
@@ -291,6 +323,19 @@ def reject_idea_response(
     return {"message": "Response rejected"}
 
 # ---------- Проекты ----------
+@router.get("/projects/my", response_model=List[ProjectOut])
+def get_my_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    member_projects = db.query(ProjectMember).filter(
+        ProjectMember.user_id == current_user.id
+    ).all()
+    project_ids = [member_project.project_id for member_project in member_projects]
+    if not project_ids:
+        return []
+    return db.query(Project).filter(Project.id.in_(project_ids)).all()
+
 @router.get("/projects/{project_id}", response_model=ProjectOut)
 def get_project(
     project_id: int,
@@ -342,6 +387,10 @@ def invite_to_project(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    existing_membership = db.query(ProjectMember).filter(ProjectMember.user_id == user_id).first()
+    if existing_membership:
+        raise HTTPException(status_code=400, detail="User is already a member of another project")
     
     existing_member = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
@@ -376,6 +425,10 @@ def accept_project_invite(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    existing_membership = db.query(ProjectMember).filter(ProjectMember.user_id == current_user.id).first()
+    if existing_membership:
+        raise HTTPException(status_code=400, detail="You are already a member of another project")
+
     invite = db.query(ProjectInvite).filter(
         ProjectInvite.id == invite_id,
         ProjectInvite.project_id == project_id,
@@ -468,20 +521,6 @@ def remove_member(
 
 # В конец файла добавить:
 
-@router.get("/projects/my", response_model=List[ProjectOut])
-def get_my_projects(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    member_projects = db.query(ProjectMember).filter(
-        ProjectMember.user_id == current_user.id
-    ).all()
-    project_ids = [mp.project_id for mp in member_projects]
-    if not project_ids:
-        return []
-    projects = db.query(Project).filter(Project.id.in_(project_ids)).all()
-    return projects
-
 @router.delete("/{idea_id}/interest")
 def withdraw_interest(
     idea_id: int,
@@ -499,16 +538,3 @@ def withdraw_interest(
     db.commit()
     return {"message": "Response withdrawn"}
 
-@router.get("/my-responses", response_model=List[IdeaResponseOut])
-def get_my_idea_response(
-    status: Optional[str] = Query(None, description="Фильтр по статусу: pending, accepted, rejected"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    query = db.query(IdeaResponse).filter(IdeaResponse.user_id == current_user.id)
-    if status:
-        if status not in ["pending", "accepted", "rejected"]:
-            raise HTTPException(status_code=400, detail="Invalid status filter")
-        query = query.filter(IdeaResponse.status == status)
-    responses = query.order_by(IdeaResponse.created_at.desc()).all()
-    return responses

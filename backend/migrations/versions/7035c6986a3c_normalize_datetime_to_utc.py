@@ -24,26 +24,31 @@ def upgrade() -> None:
     op.alter_column('messages', 'created_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                type_=sa.DateTime(),
+               postgresql_using="created_at AT TIME ZONE 'UTC'",
                existing_nullable=True,
                existing_server_default=sa.text('now()'))
     op.alter_column('task_executions', 'created_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                type_=sa.DateTime(),
+               postgresql_using="created_at AT TIME ZONE 'UTC'",
                existing_nullable=True,
                existing_server_default=sa.text('now()'))
     op.alter_column('task_responses', 'created_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                type_=sa.DateTime(),
+               postgresql_using="created_at AT TIME ZONE 'UTC'",
                existing_nullable=True,
                existing_server_default=sa.text('now()'))
     op.alter_column('tasks', 'created_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                type_=sa.DateTime(),
+               postgresql_using="created_at AT TIME ZONE 'UTC'",
                existing_nullable=True,
                existing_server_default=sa.text('now()'))
     op.alter_column('tasks', 'deadline',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                type_=sa.DateTime(),
+               postgresql_using="deadline AT TIME ZONE 'UTC'",
                existing_nullable=True)
     # ### end Alembic commands ###
 

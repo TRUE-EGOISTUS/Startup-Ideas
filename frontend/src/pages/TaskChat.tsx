@@ -17,9 +17,8 @@ export function TaskChatPage() {
       return;
     }
     try {
-      const { data } = await api.get<Task[]>("/tasks");
-      const found = data.find((item) => item.id === Number(taskId)) || null;
-      setTask(found);
+      const { data } = await api.get<Task>(`/tasks/${taskId}`);
+      setTask(data);
     } catch {
       message.error("Не удалось загрузить задачу");
     }
@@ -89,7 +88,7 @@ export function TaskChatPage() {
           rows={3}
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="Напишите сообщение"
+          placeholder="Напишите сообщение" 
         />
         <Button className="mt-3" type="primary" size="large" onClick={onSendMessage}>
           Отправить

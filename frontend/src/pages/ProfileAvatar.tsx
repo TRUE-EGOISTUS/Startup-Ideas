@@ -21,10 +21,10 @@ export function ProfileAvatarPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Аватар / логотип</Typography.Title>
+      <Typography.Title level={2}>Фото профиля / логотип</Typography.Title>
       <Card>
         <Upload {...uploadProps}>
-          <Button>Загрузить файл</Button>
+          <Button>Загрузить изображение</Button>
         </Upload>
       </Card>
     </div>

@@ -7,11 +7,11 @@ from app.models import (
     User, Task,
     UserRole, TaskResponseModel,
     TaskExecution )
-from app.auth import get_current_user
+from app.auth import get_current_user, get_optional_user
 from app.schemas.task import (
      TaskCreate, TaskResponseSchema, 
      TaskResponseCreate, TaskResponseOut, 
-     TaskCompleteRequest, TaskReviewRequest, OpenSolutionRequest, TaskExecutionOut)
+    TaskCompleteRequest, TaskReviewRequest, OpenSolutionRequest, TaskExecutionOut, TaskDetailOut)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -109,8 +109,17 @@ def get_tasks(
     skill: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     query = db.query(Task)
+    if current_user is None:
+        query = query.filter(Task.visibility == "public")
+    else:
+        query = query.filter(or_(
+            Task.visibility == "public",
+            Task.author_id == current_user.id,
+            Task.assigned_to_id == current_user.id,
+        ))
     if status:
         query = query.filter(Task.status == status)
     if difficulty:
@@ -132,6 +141,24 @@ def get_tasks(
     tasks = query.options(selectinload(Task.author), selectinload(Task.responses)).offset(skip).limit(limit).all()
     response.headers["X-Total-Count"] = str(total)
     return tasks
+
+@router.get("/{task_id}", response_model=TaskDetailOut)
+def get_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    task = db.query(Task).options(selectinload(Task.responses)).filter(
+        Task.id == task_id,
+        or_(
+            Task.visibility == "public",
+            Task.author_id == (current_user.id if current_user else -1),
+            Task.assigned_to_id == (current_user.id if current_user else -1),
+        ),
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 @router.post("/{task_id}/responses", response_model=TaskResponseOut)
 def create_response(

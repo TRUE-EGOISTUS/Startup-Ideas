@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Input, Select, Table, Typography, message, Space } from "antd";
+import { Button, Card, Input, Select, Table, Typography, message, Tag, Empty } from "antd";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Task } from "../types";
@@ -35,27 +35,27 @@ export function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Задачи</Typography.Title>
-      {user?.role === "company" && (
-        <Card>
+      <div className="page-toolbar">
+        <Typography.Title level={2}>Задачи</Typography.Title>
+        {user?.role === "company" && (
           <Button type="primary">
             <Link to="/tasks/new">Создать задачу</Link>
           </Button>
-        </Card>
-      )}
+        )}
+      </div>
       <Card title="Список задач">
-        <Space wrap className="mb-4">
+        <div className="page-filters mb-4">
           <Select
             placeholder="Статус"
             allowClear
             value={filters.status || undefined}
             onChange={(value) => setFilters((prev) => ({ ...prev, status: value || "" }))}
             options={[
-              { value: "open", label: "open" },
-              { value: "in_progress", label: "in_progress" },
-              { value: "awaiting_review", label: "awaiting_review" },
-              { value: "ready_for_next", label: "ready_for_next" },
-              { value: "reviewing", label: "reviewing" }
+              { value: "open", label: "Открыта" },
+              { value: "in_progress", label: "В работе" },
+              { value: "awaiting_review", label: "На ревью" },
+              { value: "ready_for_next", label: "Готова" },
+              { value: "reviewing", label: "Проверка" }
             ]}
           />
           <Select
@@ -64,9 +64,9 @@ export function TasksPage() {
             value={filters.difficulty || undefined}
             onChange={(value) => setFilters((prev) => ({ ...prev, difficulty: value || "" }))}
             options={[
-              { value: "easy", label: "easy" },
-              { value: "medium", label: "medium" },
-              { value: "hard", label: "hard" }
+              { value: "easy", label: "Легко" },
+              { value: "medium", label: "Средне" },
+              { value: "hard", label: "Сложно" }
             ]}
           />
           <Input
@@ -75,11 +75,18 @@ export function TasksPage() {
             onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
           />
           <Button onClick={fetchTasks}>Применить</Button>
-        </Space>
+        </div>
         <Table
           rowKey="id"
           loading={loading}
           dataSource={tasks}
+          locale={{
+            emptyText: (
+              <div className="empty-panel">
+                <Empty description="Пока нет задач" />
+              </div>
+            )
+          }}
           columns={[
             { title: "ID", dataIndex: "id", width: 80 },
             {
@@ -87,9 +94,28 @@ export function TasksPage() {
               dataIndex: "title",
               render: (_: string, record: Task) => <Link to={`/tasks/${record.id}`}>{record.title}</Link>
             },
-            { title: "Статус", dataIndex: "status" },
-            { title: "Режим", dataIndex: "execution_mode" },
-            { title: "Награда", dataIndex: "reward" }
+            {
+              title: "Статус",
+              dataIndex: "status",
+              render: (value: string) => (
+                <Tag
+                  className="status-tag"
+                  color={value === "open" ? "green" : value === "in_progress" ? "blue" : value === "awaiting_review" ? "gold" : "default"}
+                >
+                  {value.replace(/_/g, " ")}
+                </Tag>
+              )
+            },
+            {
+              title: "Режим",
+              dataIndex: "execution_mode",
+              render: (value?: string) => <Tag>{value || "classic"}</Tag>
+            },
+            {
+              title: "Награда",
+              dataIndex: "reward",
+              render: (value?: number | null) => (value ? `${value} ₽` : "-")
+            }
           ]}
           pagination={{ pageSize: 10 }}
         />

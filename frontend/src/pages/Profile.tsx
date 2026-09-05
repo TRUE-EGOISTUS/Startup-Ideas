@@ -18,7 +18,10 @@ export function ProfilePage() {
             </Button>
           )}
           <Button>
-            <Link to="/profile/avatar">Аватар / логотип</Link>
+            <Link to="/profile/avatar">Фото профиля / логотип</Link>
+          </Button>
+          <Button>
+            <Link to="/profile/password">Смена пароля</Link>
           </Button>
         </Space>
       </Card>

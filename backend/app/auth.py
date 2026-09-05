@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from jose import JWTError, jwt, ExpiredSignatureError
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 
 from app.schemas.user import UserCreate, UserRead
@@ -28,6 +29,7 @@ def get_password_hash(password):
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
+    to_encode["type"] = "access"
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
@@ -37,6 +39,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
 
 def create_refresh_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
+    to_encode["type"] = "refresh"
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
@@ -49,7 +52,7 @@ def get_current_user_from_token(token: str, db: Session) -> User:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email = payload.get("sub")
-        if email is None:
+        if email is None or payload.get("type") != "access":
             raise credentials_exception
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -60,6 +63,8 @@ def get_current_user_from_token(token: str, db: Session) -> User:
         raise credentials_exception
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is disabled")
+    if payload.get("token_version", 0) != user.token_version:
+        raise credentials_exception
     return user
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
@@ -73,6 +78,19 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         else:
             raise HTTPException(status_code=401, detail="Not authenticated")
     return get_current_user_from_token(token, db)
+
+def get_optional_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        else:
+            return None
+    try:
+        return get_current_user_from_token(token, db)
+    except HTTPException:
+        return None
 # Pydantic-схема
 
 @router.post("/register", response_model=UserRead)
@@ -135,8 +153,9 @@ def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is disabled")
     
-    access_token = create_access_token(data={"sub": user.email})
-    refresh_token = create_refresh_token(data={"sub": user.email})
+    token_data = {"sub": user.email, "token_version": user.token_version}
+    access_token = create_access_token(data=token_data)
+    refresh_token = create_refresh_token(data=token_data)
 
     response.set_cookie(
         key="access_token",
@@ -144,7 +163,7 @@ def login(
         httponly=True,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         samesite="lax",
-        secure=False,
+        secure=settings.COOKIE_SECURE,
     )
     response.set_cookie(
         key="refresh_token",
@@ -152,7 +171,7 @@ def login(
         httponly=True,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         samesite="lax",
-        secure=False,
+        secure=settings.COOKIE_SECURE,
     )
     return {"message": "Logged in successfully"}
 
@@ -168,7 +187,7 @@ def refresh_token(
     try:
         payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email = payload.get("sub")
-        if email is None:
+        if email is None or payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid refresh token")
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
@@ -179,14 +198,17 @@ def refresh_token(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
-    new_access_token = create_access_token(data={"sub": user.email})
+    if payload.get("token_version", 0) != user.token_version:
+        raise HTTPException(status_code=401, detail="Refresh token revoked")
+
+    new_access_token = create_access_token(data={"sub": user.email, "token_version": user.token_version})
     response.set_cookie(
         key="access_token",
         value=new_access_token,
         httponly=True,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         samesite="lax",
-        secure=False,
+        secure=settings.COOKIE_SECURE,
     )
     return {"message": "Access token refreshed"}
 

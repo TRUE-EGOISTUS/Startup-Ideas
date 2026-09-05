@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Button, Card, Descriptions, Form, Input, List, Select, Space, Tag, Typography, message } from "antd";
+import { Button, Card, Descriptions, Form, Input, List, Select, Space, Tag, Typography, message, Tabs, Empty } from "antd";
 import { api } from "../lib/api";
 import { Idea, IdeaResponse } from "../types";
 import { useAuthStore } from "../store/auth";
@@ -12,6 +12,7 @@ export function IdeaDetailPage() {
   const [responses, setResponses] = useState<IdeaResponse[]>([]);
   const [section, setSection] = useState<"details" | "update" | "status" | "respond" | "responses" | "danger">("details");
   const [hasProjects, setHasProjects] = useState(false);
+  const [updateForm] = Form.useForm();
   const canRespond = useMemo(() => {
     if (!user || !idea) {
       return false;
@@ -56,13 +57,30 @@ export function IdeaDetailPage() {
   useEffect(() => {
     loadIdea();
     if (user) {
-      api.get("/ideas/projects/my").then(({ data }) => {
-        setHasProjects(Array.isArray(data) && data.length > 0);
-      }).catch(() => {
-        setHasProjects(false);
-      });
+      api.get("/ideas/projects/my")
+        .then(({ data }) => {
+          setHasProjects(Array.isArray(data) && data.length > 0);
+        })
+        .catch(() => {
+          setHasProjects(false);
+        });
+    } else {
+      setHasProjects(false);
     }
-  }, [ideaId]);
+  }, [ideaId, user?.id]);
+
+  useEffect(() => {
+    if (!idea) {
+      return;
+    }
+    updateForm.setFieldsValue({
+      title: idea.title,
+      short_description: idea.short_description,
+      full_description: idea.full_description,
+      roles_needed: idea.roles_needed,
+      tags: idea.tags
+    });
+  }, [idea, updateForm]);
 
   const onUpdate = async (values: Record<string, unknown>) => {
     if (!ideaId) {
@@ -168,16 +186,18 @@ export function IdeaDetailPage() {
   return (
     <div className="space-y-6">
       <Typography.Title level={2}>Идея #{ideaId}</Typography.Title>
-      <Space wrap>
-        <Button type={section === "details" ? "primary" : "default"} onClick={() => setSection("details")}>Детали</Button>
-        <Button type={section === "update" ? "primary" : "default"} onClick={() => setSection("update")}>Редактировать</Button>
-        <Button type={section === "status" ? "primary" : "default"} onClick={() => setSection("status")}>Статус и роли</Button>
-        {canRespond && (
-          <Button type={section === "respond" ? "primary" : "default"} onClick={() => setSection("respond")}>Откликнуться</Button>
-        )}
-        <Button type={section === "responses" ? "primary" : "default"} onClick={() => setSection("responses")}>Отклики</Button>
-        <Button danger type={section === "danger" ? "primary" : "default"} onClick={() => setSection("danger")}>Удаление</Button>
-      </Space>
+      <Tabs
+        activeKey={section}
+        onChange={(key) => setSection(key as typeof section)}
+        items={[
+          { key: "details", label: "Детали" },
+          { key: "update", label: "Редактировать" },
+          { key: "status", label: "Статус и роли" },
+          ...(canRespond ? [{ key: "respond", label: "Откликнуться" }] : []),
+          { key: "responses", label: "Отклики" },
+          { key: "danger", label: "Удаление" }
+        ]}
+      />
       {section === "details" && idea && (
         <Card title="Детали">
           <Descriptions column={1} bordered>
@@ -197,7 +217,7 @@ export function IdeaDetailPage() {
 
       {section === "update" && (
         <Card title="Обновить идею">
-          <Form layout="vertical" onFinish={onUpdate}>
+          <Form layout="vertical" onFinish={onUpdate} form={updateForm}>
             <Form.Item label="Название" name="title">
               <Input />
             </Form.Item>
@@ -271,11 +291,19 @@ export function IdeaDetailPage() {
 
       {section === "responses" && (
         <Card title="Отклики">
-          <Space className="mb-2">
+          <div className="page-toolbar">
+            <Typography.Text>Всего откликов: {responses.length}</Typography.Text>
             <Button onClick={loadResponses}>Обновить</Button>
-          </Space>
+          </div>
           <List
             dataSource={responses}
+            locale={{
+              emptyText: (
+                <div className="empty-panel">
+                  <Empty description="Откликов пока нет" />
+                </div>
+              )
+            }}
             renderItem={(item) => (
               <List.Item
                 actions={[
@@ -287,7 +315,7 @@ export function IdeaDetailPage() {
                   title={`User ${item.user_id} · ${item.role}`}
                   description={item.message || "Сообщение не указано"}
                 />
-                <Tag>{item.status}</Tag>
+                <Tag className="status-tag">{item.status}</Tag>
               </List.Item>
             )}
           />
