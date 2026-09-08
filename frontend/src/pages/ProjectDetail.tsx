@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Button, Card, Descriptions, Form, Input, InputNumber, List, Space, Typography, message } from "antd";
+import { Button, Card, Descriptions, Form, Input, InputNumber, List, Space, Typography, message, Tabs, Empty } from "antd";
 import { api } from "../lib/api";
 import { Project, ProjectMember } from "../types";
 
@@ -81,57 +81,85 @@ export function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       <Typography.Title level={2}>Проект #{projectId}</Typography.Title>
-
-      {project && (
-        <Card title="Детали проекта">
-          <Descriptions column={1} bordered>
-            <Descriptions.Item label="Название">{project.name}</Descriptions.Item>
-            <Descriptions.Item label="Описание">{project.description || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Idea ID">{project.idea_id ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="Создатель">{project.created_by}</Descriptions.Item>
-          </Descriptions>
-        </Card>
-      )}
-
-      <Card>
-        <Button type="primary">
-          <Link to={`/projects/${projectId}/chat`}>Открыть чат проекта</Link>
-        </Button>
-      </Card>
-
-      <Card title="Участники">
-        <Space className="mb-2">
-          <Button onClick={loadMembers}>Обновить</Button>
-          <Button onClick={onLeave} danger>Покинуть проект</Button>
-        </Space>
-        <List
-          dataSource={members}
-          renderItem={(item) => (
-            <List.Item>
-              <div>
-                <div>ID: {item.user_id}</div>
-                <div>Role: {item.role || "-"}</div>
-              </div>
-            </List.Item>
-          )}
-        />
-        <Form layout="inline" onFinish={onInvite}>
-          <Form.Item label="User ID" name="user_id" rules={[{ required: true }]}> 
-            <InputNumber min={1} />
-          </Form.Item>
-          <Form.Item label="Роль" name="role">
-            <Input />
-          </Form.Item>
-          <Button type="primary" htmlType="submit">Пригласить</Button>
-        </Form>
-        <Form layout="inline" onFinish={onRemove}>
-          <Form.Item label="User ID" name="user_id" rules={[{ required: true }]}> 
-            <InputNumber min={1} />
-          </Form.Item>
-          <Button danger htmlType="submit">Удалить</Button>
-        </Form>
-      </Card>
-
+      <Tabs
+        items={[
+          {
+            key: "overview",
+            label: "Обзор",
+            children: project ? (
+              <Card title="Детали проекта">
+                <Descriptions column={1} bordered>
+                  <Descriptions.Item label="Название">{project.name}</Descriptions.Item>
+                  <Descriptions.Item label="Описание">{project.description || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="ID идеи">{project.idea_id ?? "-"}</Descriptions.Item>
+                  <Descriptions.Item label="Создатель">{project.created_by}</Descriptions.Item>
+                </Descriptions>
+              </Card>
+            ) : (
+              <Empty description="Данные проекта пока недоступны" />
+            )
+          },
+          {
+            key: "chat",
+            label: "Чат",
+            children: (
+              <Card>
+                <Button type="primary">
+                  <Link to={`/projects/${projectId}/chat`}>Открыть чат проекта</Link>
+                </Button>
+              </Card>
+            )
+          },
+          {
+            key: "members",
+            label: "Участники",
+            children: (
+              <Card title="Участники">
+                <div className="page-toolbar">
+                  <Typography.Text>Участников: {members.length}</Typography.Text>
+                  <Space>
+                    <Button onClick={loadMembers}>Обновить</Button>
+                    <Button onClick={onLeave} danger>Покинуть проект</Button>
+                  </Space>
+                </div>
+                <List
+                  dataSource={members}
+                  locale={{
+                    emptyText: (
+                      <div className="empty-panel">
+                        <Empty description="Пока нет участников" />
+                      </div>
+                    )
+                  }}
+                  renderItem={(item) => (
+                    <List.Item>
+                      <div>
+                        <div>ID: {item.user_id}</div>
+                        <div>Role: {item.role || "-"}</div>
+                      </div>
+                    </List.Item>
+                  )}
+                />
+                <Form layout="inline" onFinish={onInvite}>
+                  <Form.Item label="ID пользователя" name="user_id" rules={[{ required: true }]}>
+                    <InputNumber min={1} />
+                  </Form.Item>
+                  <Form.Item label="Роль" name="role">
+                    <Input />
+                  </Form.Item>
+                  <Button type="primary" htmlType="submit">Пригласить</Button>
+                </Form>
+                <Form layout="inline" onFinish={onRemove}>
+                  <Form.Item label="ID пользователя" name="user_id" rules={[{ required: true }]}>
+                    <InputNumber min={1} />
+                  </Form.Item>
+                  <Button danger htmlType="submit">Удалить</Button>
+                </Form>
+              </Card>
+            )
+          }
+        ]}
+      />
     </div>
   );
 }

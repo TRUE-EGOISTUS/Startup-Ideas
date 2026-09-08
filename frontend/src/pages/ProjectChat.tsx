@@ -1,22 +1,21 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Button, Card, Input, List, Space, Typography, message } from "antd";
+import { Button, Card, Input, List, Typography, message } from "antd";
 import { api } from "../lib/api";
 import type { Message } from "../types";
 
 export function ProjectChatPage() {
   const { projectId } = useParams();
   const [projectMessages, setProjectMessages] = useState<Message[]>([]);
-  const [taskIdForChat, setTaskIdForChat] = useState("");
   const [text, setText] = useState("");
 
   const loadProjectMessages = async () => {
-    if (!projectId || !taskIdForChat) {
+    if (!projectId) {
       return;
     }
     try {
       const { data } = await api.get<Message[]>(
-        `/tasks/${taskIdForChat}/messages/projects/${projectId}/messages`,
+        `/projects/${projectId}/messages`,
         { params: { since: 0, skip: 0, limit: 50 } }
       );
       setProjectMessages(data);
@@ -26,18 +25,16 @@ export function ProjectChatPage() {
   };
 
   useEffect(() => {
-    if (taskIdForChat) {
-      loadProjectMessages();
-    }
-  }, [taskIdForChat]);
+    loadProjectMessages();
+  }, [projectId]);
 
   const onSendProjectMessage = async () => {
-    if (!projectId || !taskIdForChat || !text.trim()) {
-      message.error("Укажите task_id и текст сообщения");
+    if (!projectId || !text.trim()) {
+      message.error("Введите текст сообщения");
       return;
     }
     try {
-      await api.post(`/tasks/${taskIdForChat}/messages/projects/${projectId}/messages`, { text });
+      await api.post(`/projects/${projectId}/messages`, { text });
       setText("");
       loadProjectMessages();
     } catch {
@@ -49,14 +46,7 @@ export function ProjectChatPage() {
     <div className="space-y-6">
       <Typography.Title level={2}>Чат проекта #{projectId}</Typography.Title>
       <Card>
-        <Space direction="vertical" className="w-full">
-          <Input
-            placeholder="task_id (нужен для текущего API)"
-            value={taskIdForChat}
-            onChange={(event) => setTaskIdForChat(event.target.value)}
-          />
-          <Button onClick={loadProjectMessages}>Загрузить сообщения</Button>
-        </Space>
+        <Typography.Text type="secondary">Общие сообщения участников проекта</Typography.Text>
       </Card>
       <Card>
         <List

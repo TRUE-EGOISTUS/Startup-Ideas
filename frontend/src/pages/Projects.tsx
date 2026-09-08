@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Table, Typography, message } from "antd";
+import { Button, Card, Table, Typography, message, Empty } from "antd";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Project } from "../types";
@@ -26,14 +26,23 @@ export function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Мои проекты</Typography.Title>
-      <Card>
+      <div className="page-toolbar">
+        <Typography.Title level={2} className="page-title">Мои проекты</Typography.Title>
         <Button onClick={fetchProjects}>Обновить</Button>
+      </div>
+      <Card>
         <Table
           className="mt-3"
           rowKey="id"
           loading={loading}
           dataSource={projects}
+          locale={{
+            emptyText: (
+              <div className="empty-panel">
+                <Empty description="Проекты появятся после набора команды" />
+              </div>
+            )
+          }}
           columns={[
             { title: "ID", dataIndex: "id", width: 80 },
             {

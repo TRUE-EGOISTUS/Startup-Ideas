@@ -19,10 +19,10 @@ export function ProfilePasswordPage() {
           <Form.Item label="Текущий пароль" name="old_password" rules={[{ required: true }]}> 
             <Input.Password />
           </Form.Item>
-          <Form.Item label="Новый пароль" name="new_password" rules={[{ required: true, min: 8 }]}> 
+          <Form.Item label="Новый пароль (мин. 8 символов)" name="new_password" rules={[{ required: true, min: 8 }]}> 
             <Input.Password />
           </Form.Item>
-          <Button type="primary" htmlType="submit">Сменить</Button>
+          <Button type="primary" htmlType="submit">Сменить пароль</Button>
         </Form>
       </Card>
     </div>

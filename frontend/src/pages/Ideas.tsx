@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Input, Select, Table, Typography, message, Space } from "antd";
+import { Button, Card, Input, Select, Table, Typography, message, Tag, Empty } from "antd";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Idea } from "../types";
@@ -36,15 +36,15 @@ export function IdeasPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Идеи</Typography.Title>
-      <Card>
+      <div className="page-toolbar">
+        <Typography.Title level={2} className="page-title">Идеи</Typography.Title>
         <Button type="primary">
           <Link to="/ideas/new">Создать идею</Link>
         </Button>
-      </Card>
+      </div>
 
       <Card title="Список идей">
-        <Space wrap className="mb-4">
+        <div className="page-filters mb-4">
           <Select
             placeholder="Статус"
             allowClear
@@ -54,8 +54,8 @@ export function IdeasPage() {
               fetchIdeas(value || undefined);
             }}
             options={[
-              { value: "open", label: "open" },
-              { value: "in_progress", label: "in_progress" }
+              { value: "open", label: "Открыта" },
+              { value: "in_progress", label: "В работе" }
             ]}
           />
           <Input
@@ -63,11 +63,18 @@ export function IdeasPage() {
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
-        </Space>
+        </div>
         <Table
           rowKey="id"
           loading={loading}
           dataSource={filteredIdeas}
+          locale={{
+            emptyText: (
+              <div className="empty-panel">
+                <Empty description="Пока нет идей" />
+              </div>
+            )
+          }}
           columns={[
             { title: "ID", dataIndex: "id", width: 80 },
             {
@@ -75,8 +82,25 @@ export function IdeasPage() {
               dataIndex: "title",
               render: (_: string, record: Idea) => <Link to={`/ideas/${record.id}`}>{record.title}</Link>
             },
-            { title: "Статус", dataIndex: "status" },
-            { title: "Теги", dataIndex: "tags" }
+            {
+              title: "Статус",
+              dataIndex: "status",
+              render: (value: string) => (
+                <Tag className="status-tag" color={value === "open" ? "green" : "blue"}>
+                  {value.replace(/_/g, " ")}
+                </Tag>
+              )
+            },
+            {
+              title: "Теги",
+              dataIndex: "tags",
+              render: (value?: string | null) =>
+                value
+                  ? value.split(",").map((tag) => (
+                      <Tag key={tag.trim()}>{tag.trim()}</Tag>
+                    ))
+                  : "-"
+            }
           ]}
         />
       </Card>

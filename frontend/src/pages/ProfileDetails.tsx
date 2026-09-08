@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Button, Card, Form, Input, Typography, message } from "antd";
 import { api } from "../lib/api";
 import { useAuthStore } from "../store/auth";
@@ -18,13 +18,12 @@ type CompanyProfile = {
 
 export function ProfileDetailsPage() {
   const { user } = useAuthStore();
-  const [profile, setProfile] = useState<SpecialistProfile | CompanyProfile | null>(null);
-  const companyProfile = profile as CompanyProfile | null;
+  const [form] = Form.useForm();
 
   const loadProfile = async () => {
     try {
       const { data } = await api.get<SpecialistProfile | CompanyProfile>("/users/me/profile");
-      setProfile(data);
+      form.setFieldsValue(data);
     } catch {
       message.error("Не удалось загрузить профиль");
     }
@@ -53,15 +52,28 @@ export function ProfileDetailsPage() {
       <Typography.Title level={2}>Профильные данные</Typography.Title>
       <Card>
         {user?.role === "company" ? (
-          <Form layout="vertical" onFinish={onUpdateProfile}>
-            <Form.Item label="Название компании" name="company_name" initialValue={companyProfile?.company_name}>
-              <Input />
+          <Form layout="vertical" onFinish={onUpdateProfile} form={form}>
+            <Form.Item label="Название компании" name="company_name">
+              <Input placeholder="ООО " />
             </Form.Item>
-            <Form.Item label="Описание" name="description" initialValue={companyProfile?.description}>
-              <Input.TextArea rows={2} />
+            <Form.Item label="Описание" name="description">
+              <Input.TextArea rows={2} placeholder="Чем занимается компания" />
             </Form.Item>
-            <Form.Item label="Контакты" name="contact_info" initialValue={companyProfile?.contact_info}>
-              <Input />
+            <Form.Item label="Контакты" name="contact_info">
+              <Input placeholder="Телеграм, почта, сайт" />
+            </Form.Item>
+            <Button type="primary" htmlType="submit">Сохранить</Button>
+          </Form>
+        ) : user?.role === "specialist" ? (
+          <Form layout="vertical" onFinish={onUpdateProfile} form={form}>
+            <Form.Item label="Навыки" name="skills">
+              <Input placeholder="React, UI/UX, Python" />
+            </Form.Item>
+            <Form.Item label="GitHub" name="github_url">
+              <Input placeholder="https://github.com/username" />
+            </Form.Item>
+            <Form.Item label="Портфолио" name="portfolio">
+              <Input.TextArea rows={2} placeholder="Ссылка на портфолио" />
             </Form.Item>
             <Button type="primary" htmlType="submit">Сохранить</Button>
           </Form>

@@ -23,6 +23,7 @@ class TaskResponseSchema(BaseModel):
     description: Optional[str]
     status: str
     author_id: int
+    assigned_to_id: Optional[int] = None
     created_at: datetime   # UTC из БД
     reward: Optional[int]
     deadline: Optional[datetime]   # UTC из БД
@@ -75,6 +76,12 @@ class TaskResponseOut(BaseModel):
     def created_at_msk(self) -> str:
         msk = self.created_at + timedelta(hours=3)
         return msk.isoformat(timespec='milliseconds')
+
+    class Config:
+        from_attributes = True
+
+class TaskDetailOut(TaskResponseSchema):
+    responses: Optional[list[TaskResponseOut]] = None
 
     class Config:
         from_attributes = True

@@ -1,9 +1,21 @@
+import { useEffect } from "react";
 import { Button, Card, Form, Input, Typography, message } from "antd";
 import { api } from "../lib/api";
 import { useAuthStore } from "../store/auth";
 
 export function ProfileAccountPage() {
   const { user, loadMe, refresh } = useAuthStore();
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    form.setFieldsValue({
+      email: user.email,
+      username: user.username ?? undefined
+    });
+  }, [form, user]);
 
   const onUpdateMe = async (values: { email?: string; username?: string }) => {
     try {
@@ -29,21 +41,21 @@ export function ProfileAccountPage() {
       <Typography.Title level={2}>Аккаунт</Typography.Title>
 
       <Card title="Мой аккаунт">
-        <div>Email: {user?.email || "-"}</div>
-        <div>Role: {user?.role || "-"}</div>
-        <div>Username: {user?.username || "-"}</div>
+        <div>Почта: {user?.email || "-"}</div>
+        <div>Роль: {user?.role || "-"}</div>
+        <div>Имя пользователя: {user?.username || "-"}</div>
         <Button className="mt-2" onClick={() => refresh()}>
-          Обновить токен
+          Обновить сессию
         </Button>
       </Card>
 
-      <Card title="Обновить email/username">
-        <Form layout="vertical" onFinish={onUpdateMe}>
-          <Form.Item label="Email" name="email">
-            <Input type="email" />
+      <Card title="Обновить почту и имя">
+        <Form layout="vertical" onFinish={onUpdateMe} form={form}>
+          <Form.Item label="Почта" name="email">
+            <Input type="email" placeholder="name@example.com" />
           </Form.Item>
-          <Form.Item label="Username" name="username">
-            <Input />
+          <Form.Item label="Имя пользователя" name="username">
+            <Input placeholder="Например, anna.dev" />
           </Form.Item>
           <Button type="primary" htmlType="submit">Сохранить</Button>
         </Form>

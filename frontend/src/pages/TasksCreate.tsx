@@ -49,41 +49,51 @@ export function TasksCreatePage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Создание задачи</Typography.Title>
-      <Card title="Новая задача">
+      <Typography.Title level={2}>Новая задача</Typography.Title>
+      <Card title="Основные параметры">
         <Form layout="vertical" onFinish={onCreate} form={form} initialValues={{ execution_mode: "classic", visibility: "public" }}>
-          <Form.Item label="Заголовок" name="title" rules={[{ required: true }]}>
-            <Input />
+          <Form.Item label="Название задачи" name="title" rules={[{ required: true }]}>
+            <Input placeholder="Например, собрать лендинг" />
           </Form.Item>
           <Form.Item label="Описание" name="description">
-            <Input.TextArea rows={3} />
+            <Input.TextArea rows={3} placeholder="Кратко опишите суть задачи" />
           </Form.Item>
           <Form.Item label="Награда" name="reward">
-            <InputNumber min={0} className="w-full" />
+            <InputNumber min={0} className="w-full" placeholder="Сумма" />
           </Form.Item>
           <Form.Item label="Видимость" name="visibility">
-            <Select options={[{ value: "public", label: "public" }, { value: "private", label: "private" }]} />
+            <Select
+              options={[
+                { value: "public", label: "Публичная" },
+                { value: "private", label: "Приватная" }
+              ]}
+            />
           </Form.Item>
           <Form.Item label="Режим выполнения" name="execution_mode">
-            <Select options={[{ value: "classic", label: "classic" }, { value: "open", label: "open" }]} />
+            <Select
+              options={[
+                { value: "classic", label: "Классический" },
+                { value: "open", label: "Открытый" }
+              ]}
+            />
           </Form.Item>
           {executionMode !== "classic" && (
-            <Form.Item label="Дедлайн (MSK)" name="deadline">
+            <Form.Item label="Дедлайн (МСК)" name="deadline">
               <Input type="datetime-local" />
             </Form.Item>
           )}
-          <Form.Item label="Навыки" name="required_skills">
-            <Input />
+          <Form.Item label="Навыки (через запятую)" name="required_skills">
+            <Input placeholder="React, Figma, UX" />
           </Form.Item>
           <Form.Item label="Сложность" name="difficulty">
-            <Input />
+            <Input placeholder="easy / medium / hard" />
           </Form.Item>
           {executionMode !== "open" && (
             <Form.Item label="Срок для исполнителя (минуты)" name="executor_deadline_minutes">
-              <InputNumber min={1} className="w-full" />
+              <InputNumber min={1} className="w-full" placeholder="Например, 2880" />
             </Form.Item>
           )}
-          <Button type="primary" htmlType="submit">Создать</Button>
+          <Button type="primary" htmlType="submit">Создать задачу</Button>
         </Form>
       </Card>
 

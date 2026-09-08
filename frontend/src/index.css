@@ -1,6 +1,26 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --app-font-body: "Manrope", "Segoe UI", sans-serif;
+  --app-font-display: "Space Grotesk", "Manrope", sans-serif;
+  --app-bg: #F7F8FC;
+  --app-surface: #FFFFFF;
+  --app-ink: #17181F;
+  --app-muted: #6B7280;
+  --app-border: #D1D5DB;
+  --app-accent: #4F46E5;
+  --app-accent-hover: #4338CA;
+  --app-accent-pressed: #3730A3;
+  --app-accent-2: #00D9A3;
+  --app-accent-2-hover: #00B98A;
+  --app-accent-2-pressed: #009675;
+  --app-shadow: 0 18px 45px rgba(23, 24, 31, 0.08);
+  --app-radius: 16px;
+}
 
 html, body, #root {
   height: 100%;
@@ -8,17 +28,483 @@ html, body, #root {
 
 body {
   margin: 0;
-  background: #f5f5f5;
-  color: #111827;
+  background: radial-gradient(circle at top left, rgba(79, 70, 229, 0.08), transparent 40%),
+    radial-gradient(circle at 20% 40%, rgba(0, 217, 163, 0.08), transparent 35%),
+    var(--app-bg);
+  color: var(--app-ink);
+  font-family: var(--app-font-body);
+}
+
+button,
+input,
+textarea,
+select,
+.ant-typography,
+.ant-btn,
+.ant-menu,
+.ant-input,
+.ant-select,
+.ant-picker,
+.ant-input-number {
+  font-family: var(--app-font-body);
 }
 
 a {
   cursor: pointer;
+  color: inherit;
 }
 
 .ant-btn > a {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
   color: inherit;
+}
+
+.app-shell {
+  background: transparent;
+}
+
+.app-header {
+  background: var(--app-ink);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 30px rgba(23, 24, 31, 0.18);
+}
+
+.app-title {
+  font-family: var(--app-font-display);
+  letter-spacing: -0.01em;
+  color: var(--app-surface) !important;
+}
+
+.app-content {
+  padding: 32px 24px 48px;
+}
+
+.app-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.app-page-loading {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ant-typography.ant-typography-title {
+  font-family: var(--app-font-display);
+}
+
+.page-title {
+  color: #FFFFFF !important;
+}
+
+.app-header .ant-menu {
+  background: transparent;
+  border-bottom: none;
+}
+
+.app-header .ant-menu-item,
+.app-header .ant-menu-item a,
+.app-header .ant-menu-item .anticon {
+  color: rgba(255, 255, 255, 0.72);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.app-header .ant-menu-item:hover,
+.app-header .ant-menu-item:hover a,
+.app-header .ant-menu-item:hover .anticon {
+  color: var(--app-surface) !important;
+}
+
+.app-header .ant-menu-item-selected {
+  background: var(--app-accent) !important;
+  border-radius: 999px;
+}
+
+.app-header .ant-menu-item-selected,
+.app-header .ant-menu-item-selected a,
+.app-header .ant-menu-item-selected .anticon {
+  color: var(--app-surface) !important;
+}
+
+.app-header .ant-menu-item-selected::after {
+  display: none;
+}
+
+.app-header .ant-typography {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.app-header .ant-btn-text {
+  color: var(--app-surface);
+}
+
+.app-header .ant-btn-text:hover,
+.app-header .ant-btn-text:focus {
+  color: var(--app-surface) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.app-header .ant-btn-primary {
+  background: var(--app-accent);
+  border-color: var(--app-accent);
+}
+
+.app-header .ant-btn-primary:hover,
+.app-header .ant-btn-primary:focus {
+  background: var(--app-accent-hover);
+  border-color: var(--app-accent-hover);
+}
+
+.app-header .ant-btn-primary:active {
+  background: var(--app-accent-pressed);
+  border-color: var(--app-accent-pressed);
+}
+
+.app-login-button.ant-btn-primary {
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.app-login-button.ant-btn-primary:hover,
+.app-login-button.ant-btn-primary:focus {
+  background: var(--app-accent-hover) !important;
+  border-color: var(--app-accent-hover) !important;
+  color: var(--app-surface) !important;
+}
+
+.app-login-button.ant-btn-primary:active {
+  background: var(--app-accent-pressed) !important;
+  border-color: var(--app-accent-pressed) !important;
+  color: var(--app-surface) !important;
+}
+
+.app-header .ant-btn-dangerous {
+  color: #FFFFFF;
+  border-color: #EF4444;
+  background: transparent;
+}
+
+.app-header .ant-btn-dangerous:hover,
+.app-header .ant-btn-dangerous:focus {
+  color: #FFFFFF !important;
+  border-color: #DC2626 !important;
+  background: #DC2626 !important;
+}
+
+.app-header-left {
+  gap: 12px;
+}
+
+.app-header-menu {
+  flex: 1;
+  justify-content: center;
+}
+
+.app-mobile-toggle {
+  display: none !important;
+}
+
+.app-mobile-drawer .ant-drawer-body {
+  background: var(--app-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-mobile-drawer .ant-drawer-header {
+  background: var(--app-ink);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.app-mobile-drawer .ant-drawer-close,
+.app-mobile-drawer .ant-drawer-title {
+  color: var(--app-surface);
+}
+
+.app-mobile-drawer .ant-menu {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.app-mobile-drawer .ant-menu-item,
+.app-mobile-drawer .ant-menu-item a,
+.app-mobile-drawer .ant-menu-item .anticon {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.app-mobile-drawer .ant-menu-item:hover,
+.app-mobile-drawer .ant-menu-item:hover a,
+.app-mobile-drawer .ant-menu-item:hover .anticon {
+  color: var(--app-surface) !important;
+}
+
+.app-mobile-drawer .ant-menu-item-selected {
+  background: var(--app-accent) !important;
+  border-radius: 999px;
+}
+
+.app-mobile-drawer .ant-menu-item-selected,
+.app-mobile-drawer .ant-menu-item-selected a,
+.app-mobile-drawer .ant-menu-item-selected .anticon {
+  color: var(--app-surface) !important;
+}
+
+.app-mobile-drawer .ant-menu-item-selected::after {
+  display: none;
+}
+
+.app-mobile-actions .ant-typography {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.app-mobile-actions .ant-btn-dangerous {
+  color: var(--app-surface);
+  border-color: #EF4444;
+  background: transparent;
+}
+
+.app-mobile-actions .ant-btn-dangerous:hover,
+.app-mobile-actions .ant-btn-dangerous:focus {
+  color: var(--app-surface) !important;
+  border-color: #DC2626 !important;
+  background: #DC2626 !important;
+}
+
+.app-mobile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ant-card {
+  border-radius: var(--app-radius);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 50px rgba(23, 24, 31, 0.12);
+}
+
+.ant-card-head {
+  border-bottom: 1px solid var(--app-border);
+}
+
+.ant-card-head-title {
+  font-weight: 600;
+}
+
+.ant-table-wrapper .ant-table {
+  border-radius: var(--app-radius);
+  overflow: hidden;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  background: var(--app-bg);
+  font-weight: 600;
+  color: var(--app-ink);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  background: var(--app-surface);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: #EEF2FF;
+}
+
+.ant-descriptions-bordered .ant-descriptions-view {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select-selector,
+.ant-picker,
+.ant-input-number {
+  border-radius: 12px !important;
+}
+
+.ant-btn-primary {
+  background: var(--app-accent);
+  border-color: var(--app-accent);
+  box-shadow: 0 10px 20px rgba(79, 70, 229, 0.18);
+}
+
+.ant-btn-primary:hover,
+.ant-btn-primary:focus {
+  background: var(--app-accent-hover);
+  border-color: var(--app-accent-hover);
+}
+
+.ant-btn-primary:active {
+  background: var(--app-accent-pressed);
+  border-color: var(--app-accent-pressed);
+}
+
+.ant-btn {
+  border-radius: 999px;
+  font-weight: 600;
+  height: 40px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ant-btn:hover {
+  transform: translateY(-1px);
+}
+
+.ant-btn > span,
+.ant-btn > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  line-height: 1;
+}
+
+.ant-btn-sm {
+  height: 32px;
+  padding: 0 14px;
+}
+
+.ant-btn-lg {
+  height: 44px;
+  padding: 0 22px;
+}
+
+.ant-btn-default {
+  border-color: var(--app-border);
+  color: var(--app-ink);
+  background: var(--app-surface);
+}
+
+.ant-btn-default:hover,
+.ant-btn-default:focus {
+  border-color: var(--app-accent);
+  color: var(--app-accent);
+}
+
+.ant-btn-dangerous {
+  border-radius: 999px;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-select-selector,
+.ant-picker {
+  background: var(--app-surface);
+  border-color: var(--app-border) !important;
+  box-shadow: none !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused,
+.ant-select-focused .ant-select-selector,
+.ant-picker-focused {
+  border-color: rgba(79, 70, 229, 0.6) !important;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12) !important;
+}
+
+.ant-input-affix-wrapper {
+  padding: 0 12px;
+  height: 40px;
+}
+
+.ant-input {
+  height: 40px;
+}
+
+.ant-input-number {
+  height: 40px;
+  padding: 0 10px;
+}
+
+.ant-select-selector {
+  height: 40px !important;
+  padding: 4px 12px !important;
+}
+
+.ant-select-single .ant-select-selector .ant-select-selection-item,
+.ant-select-single .ant-select-selector .ant-select-selection-placeholder {
+  line-height: 30px !important;
+}
+
+.ant-form-item-label > label {
+  font-weight: 600;
+  color: var(--app-ink);
+}
+
+.ant-space {
+  row-gap: 12px;
+}
+
+.ant-list-item {
+  padding: 16px 0;
+}
+
+.ant-list-item-meta-title {
+  font-weight: 600;
+  color: var(--app-ink);
+}
+
+.ant-empty-description,
+.ant-result-subtitle {
+  color: var(--app-muted);
+}
+
+.ant-tag {
+  border-radius: 999px;
+}
+
+.status-tag {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.empty-panel {
+  padding: 16px 0 8px;
+}
+
+@media (max-width: 900px) {
+  .app-header-menu,
+  .app-header-actions {
+    display: none;
+  }
+
+  .app-mobile-toggle {
+    display: inline-flex !important;
+  }
+
+  .app-content {
+    padding: 24px 16px 40px;
+  }
 }
