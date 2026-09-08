@@ -13,7 +13,7 @@ export function IdeasCreatePage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Создать идею</Typography.Title>
+      <Typography.Title level={2} className="page-title">Создать идею</Typography.Title>
       <Card title="Описание идеи">
         <Form layout="vertical" onFinish={onCreate}>
           <Form.Item label="Название" name="title" rules={[{ required: true }]}>

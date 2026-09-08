@@ -38,7 +38,7 @@ export function ProfileAccountPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Аккаунт</Typography.Title>
+      <Typography.Title level={2} className="page-title">Аккаунт</Typography.Title>
 
       <Card title="Мой аккаунт">
         <div>Почта: {user?.email || "-"}</div>

@@ -352,7 +352,7 @@ export function TaskDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Задача #{taskId}</Typography.Title>
+      <Typography.Title level={2} className="page-title">Задача #{taskId}</Typography.Title>
       <Tabs items={tabItems} />
     </div>
   );

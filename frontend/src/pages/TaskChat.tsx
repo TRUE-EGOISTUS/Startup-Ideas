@@ -68,7 +68,7 @@ export function TaskChatPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Чат по задаче #{taskId}</Typography.Title>
+      <Typography.Title level={2} className="page-title">Чат по задаче #{taskId}</Typography.Title>
       <Card>
         <List
           dataSource={messagesData}

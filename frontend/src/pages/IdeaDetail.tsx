@@ -185,7 +185,7 @@ export function IdeaDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Идея #{ideaId}</Typography.Title>
+      <Typography.Title level={2} className="page-title">Идея #{ideaId}</Typography.Title>
       <Tabs
         activeKey={section}
         onChange={(key) => setSection(key as typeof section)}
