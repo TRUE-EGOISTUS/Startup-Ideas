@@ -23,6 +23,7 @@ class TaskResponseSchema(BaseModel):
     description: Optional[str]
     status: str
     author_id: int
+    author_email: Optional[str] = None
     assigned_to_id: Optional[int] = None
     created_at: datetime   # UTC из БД
     reward: Optional[int]

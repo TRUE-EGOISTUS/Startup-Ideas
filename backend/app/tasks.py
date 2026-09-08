@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models import (
     User, Task,
     UserRole, TaskResponseModel,
-    TaskExecution )
+    TaskExecution, Message )
 from app.auth import get_current_user, get_optional_user
 from app.schemas.task import (
      TaskCreate, TaskResponseSchema, 
@@ -16,6 +16,13 @@ from app.schemas.task import (
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 from datetime import datetime, timezone, timedelta
+
+def _delete_task_tree(task: Task, db: Session) -> None:
+    """Remove a closed task and all records that depend on it."""
+    db.query(TaskResponseModel).filter(TaskResponseModel.task_id == task.id).delete(synchronize_session=False)
+    db.query(TaskExecution).filter(TaskExecution.task_id == task.id).delete(synchronize_session=False)
+    db.query(Message).filter(Message.task_id == task.id).delete(synchronize_session=False)
+    db.delete(task)
 
 def _handle_executor_deadline(task: Task, db: Session) -> bool:
     """
@@ -487,8 +494,7 @@ def accept_solution(
         TaskExecution.status == "pending"
     ).count()
     # Если решений нет, закрываем задачу
-    if pending_count == 0:
-        task.status = "closed"
+    should_delete_task = pending_count == 0
 
     # Обновляем рейтинг исполнителя (среднее арифметическое)   
     specialist = execution.user
@@ -503,6 +509,9 @@ def accept_solution(
             specialist.specialist_profile.rating = avg_rating
         else:
             specialist.specialist_profile.rating = rating
+
+    if should_delete_task:
+        _delete_task_tree(task, db)
 
     db.commit()
     return {"message": "Solution accepted and rated"}
@@ -543,7 +552,7 @@ def reject_solution(
         TaskExecution.status == "pending"
     ).count()
     if pending_count == 0:
-        task.status = "closed"
+        _delete_task_tree(task, db)
 
     db.commit()
     return {"message": "Solution rejected", "task_status": task.status}
@@ -579,7 +588,12 @@ def reject_all_solutions(
         solution.feedback = "Решение отклонено автором задачи"
 
     if close_task:
-        task.status = "closed"
+        _delete_task_tree(task, db)
+        db.commit()
+        return {
+            "message": f"Rejected {len(pending_solutions)} solution(s); task deleted",
+            "task_status": "closed"
+        }
 
     db.commit()
     return {
@@ -612,6 +626,6 @@ def close_task(
             TaskExecution.status == "pending"
         ).update({"status": "rejected"}, synchronize_session=False)
     
-    task.status = "closed"
+    _delete_task_tree(task, db)
     db.commit()
-    return {"message": "Task closed for further participation"}
+    return {"message": "Task closed and deleted"}

@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { Button, Card, Input, Select, Table, Typography, message, Tag, Empty } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Button, Card, Dropdown, Input, Table, Typography, message, Tag, Empty } from "antd";
+import type { MenuProps } from "antd";
+import { DownOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Task } from "../types";
@@ -9,18 +11,13 @@ export function TasksPage() {
   const { user } = useAuthStore();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ status: "", difficulty: "", search: "" });
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"alphabetical" | "difficulty" | "reward">("alphabetical");
 
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<Task[]>("/tasks", {
-        params: {
-          status: filters.status || undefined,
-          difficulty: filters.difficulty || undefined,
-          search: filters.search || undefined
-        }
-      });
+      const { data } = await api.get<Task[]>("/tasks");
       setTasks(data.filter((task) => task.status !== "closed"));
     } catch {
       message.error("Не удалось загрузить задачи");
@@ -32,6 +29,44 @@ export function TasksPage() {
   useEffect(() => {
     fetchTasks();
   }, []);
+
+  const visibleTasks = useMemo(() => {
+    const normalizedSearch = search.trim().toLocaleLowerCase("ru");
+    const difficultyOrder: Record<string, number> = { easy: 0, medium: 1, hard: 2 };
+    const filteredTasks = normalizedSearch
+      ? tasks.filter((task) => {
+          const searchableText = [task.title, task.description, task.required_skills]
+            .filter(Boolean)
+            .join(" ")
+            .toLocaleLowerCase("ru");
+          return searchableText.includes(normalizedSearch);
+        })
+      : tasks;
+
+    return [...filteredTasks].sort((firstTask, secondTask) => {
+      if (sortBy === "difficulty") {
+        return (difficultyOrder[firstTask.difficulty || ""] ?? 3) - (difficultyOrder[secondTask.difficulty || ""] ?? 3);
+      }
+
+      if (sortBy === "reward") {
+        return (firstTask.reward ?? 0) - (secondTask.reward ?? 0);
+      }
+
+      return firstTask.title.localeCompare(secondTask.title, "ru", { sensitivity: "base" });
+    });
+  }, [search, sortBy, tasks]);
+
+  const sortOptions: MenuProps["items"] = [
+    { key: "alphabetical", label: "По алфавитному порядку" },
+    { key: "difficulty", label: "По сложности" },
+    { key: "reward", label: "По награде" }
+  ];
+
+  const sortLabels = {
+    alphabetical: "По алфавитному порядку",
+    difficulty: "По сложности",
+    reward: "По награде"
+  };
 
   return (
     <div className="space-y-6">
@@ -45,41 +80,28 @@ export function TasksPage() {
       </div>
       <Card title="Список задач">
         <div className="page-filters mb-4">
-          <Select
-            placeholder="Статус"
-            allowClear
-            value={filters.status || undefined}
-            onChange={(value) => setFilters((prev) => ({ ...prev, status: value || "" }))}
-            options={[
-              { value: "open", label: "Открыта" },
-              { value: "in_progress", label: "В работе" },
-              { value: "awaiting_review", label: "На ревью" },
-              { value: "ready_for_next", label: "Готова" },
-              { value: "reviewing", label: "Проверка" }
-            ]}
-          />
-          <Select
-            placeholder="Сложность"
-            allowClear
-            value={filters.difficulty || undefined}
-            onChange={(value) => setFilters((prev) => ({ ...prev, difficulty: value || "" }))}
-            options={[
-              { value: "easy", label: "Легко" },
-              { value: "medium", label: "Средне" },
-              { value: "hard", label: "Сложно" }
-            ]}
-          />
+          <Dropdown
+            menu={{
+              items: sortOptions,
+              selectedKeys: [sortBy],
+              onClick: ({ key }) => setSortBy(key as typeof sortBy)
+            }}
+            trigger={["click"]}
+          >
+            <Button>
+              Сортировка: {sortLabels[sortBy]} <DownOutlined />
+            </Button>
+          </Dropdown>
           <Input
-            placeholder="Поиск"
-            value={filters.search}
-            onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
+            placeholder="Поиск по задачам и навыкам"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
           />
-          <Button onClick={fetchTasks}>Применить</Button>
         </div>
         <Table
           rowKey="id"
           loading={loading}
-          dataSource={tasks}
+          dataSource={visibleTasks}
           locale={{
             emptyText: (
               <div className="empty-panel">

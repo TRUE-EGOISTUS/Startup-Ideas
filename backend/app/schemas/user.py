@@ -50,6 +50,8 @@ class SpecialistProfileRead(BaseModel):
     rating: float
     github_url: Optional[str]
     portfolio: Optional[str]
+    avatar_url: Optional[str]
+    cover_url: Optional[str]
 
     class Config:
         from_attributes = True
@@ -60,6 +62,7 @@ class CompanyProfileRead(BaseModel):
     company_name: Optional[str]
     description: Optional[str]
     logo_url: Optional[str]
+    cover_url: Optional[str]
     contact_info: Optional[str]
 
     class Config:
@@ -70,11 +73,13 @@ class SpecialistProfileUpdate(BaseModel):
     skills: Optional[str] = None
     github_url: Optional[str] = None
     portfolio: Optional[str] = None
+    cover_url: Optional[str] = None
 
 class CompanyProfileUpdate(BaseModel):
     company_name: Optional[str] = None
     description: Optional[str] = None
     logo_url: Optional[str] = None
+    cover_url: Optional[str] = None
     contact_info: Optional[str] = None
 
 class ChangePasswordRequest(BaseModel):

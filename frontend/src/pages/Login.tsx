@@ -1,16 +1,20 @@
 import { Button, Card, Form, Input, Typography, message } from "antd";
-import { useNavigate, Link } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "../store/auth";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, loading } = useAuthStore();
+
+  const from = location.state?.from;
+  const redirectPath = from ? `${from.pathname}${from.search ?? ""}${from.hash ?? ""}` : "/";
 
   const onFinish = async (values: { email: string; password: string }) => {
     try {
       await login(values.email, values.password);
       message.success("Вы вошли");
-      navigate("/");
+      navigate(redirectPath, { replace: true });
     } catch {
       message.error("Не удалось войти");
     }
@@ -31,7 +35,7 @@ export function LoginPage() {
           </Button>
         </Form>
         <Typography.Paragraph className="mt-4">
-          Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>
+          Нет аккаунта? <Link to="/register" state={{ from }}>Зарегистрироваться</Link>
         </Typography.Paragraph>
       </Card>
     </div>

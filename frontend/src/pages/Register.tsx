@@ -1,16 +1,19 @@
 import { Button, Card, Form, Input, Select, Typography, message } from "antd";
-import { useNavigate, Link } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "../store/auth";
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { register, loading } = useAuthStore();
+
+  const from = location.state?.from;
 
   const onFinish = async (values: { email: string; username: string; password: string; role: "specialist" | "company" }) => {
     try {
       await register(values);
       message.success("Регистрация успешна");
-      navigate("/login");
+      navigate("/login", { replace: true, state: { from } });
     } catch {
       message.error("Не удалось зарегистрироваться");
     }
@@ -42,7 +45,7 @@ export function RegisterPage() {
           </Button>
         </Form>
         <Typography.Paragraph className="mt-4">
-          Уже есть аккаунт? <Link to="/login">Войти</Link>
+          Уже есть аккаунт? <Link to="/login" state={{ from }}>Войти</Link>
         </Typography.Paragraph>
       </Card>
     </div>

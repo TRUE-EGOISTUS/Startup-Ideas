@@ -60,6 +60,10 @@ class Task(Base):
     messages = relationship("Message", back_populates="task")
     author = relationship("User", foreign_keys=[author_id])
 
+    @property
+    def author_email(self):
+        return self.author.email if self.author else None
+
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profiles"
     id = Column(Integer, primary_key=True)
@@ -69,6 +73,7 @@ class SpecialistProfile(Base):
     portfolio = Column(Text)
     rating = Column(Float, default=0.0)
     avatar_url = Column(String(500), nullable=True)
+    cover_url = Column(String(500), nullable=True)
 
     user = relationship("User", back_populates="specialist_profile")
 
@@ -78,6 +83,7 @@ class CompanyProfile(Base):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     company_name = Column(String(200))
     logo_url = Column(String(200))
+    cover_url = Column(String(500), nullable=True)
     description = Column(Text)
     contact_info = Column(String(200))
     
@@ -129,7 +135,6 @@ class Idea(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
     short_description = Column(Text, nullable=False)
-    full_description = Column(Text, nullable=True)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     roles_needed = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
@@ -139,6 +144,10 @@ class Idea(Base):
     author = relationship("User", foreign_keys=[author_id])
     responses = relationship("IdeaResponse", back_populates="idea")
     projects = relationship("Project", back_populates="idea")
+
+    @property
+    def author_email(self):
+        return self.author.email if self.author else None
 
 class IdeaResponse(Base):
     __tablename__ = "idea_responses"
@@ -169,6 +178,10 @@ class Project(Base):
     members = relationship("ProjectMember", back_populates="project")
     messages = relationship("ProjectMessage", back_populates="project")
     invites = relationship("ProjectInvite", back_populates="project")
+
+    @property
+    def creator_email(self):
+        return self.creator.email if self.creator else None
 
 class ProjectMember(Base):
     __tablename__ = "project_members"
