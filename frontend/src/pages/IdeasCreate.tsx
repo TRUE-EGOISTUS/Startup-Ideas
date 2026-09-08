@@ -22,9 +22,6 @@ export function IdeasCreatePage() {
           <Form.Item label="Короткое описание" name="short_description" rules={[{ required: true }]}>
             <Input.TextArea rows={2} placeholder="Суть идеи в 1-2 предложениях" />
           </Form.Item>
-          <Form.Item label="Полное описание" name="full_description">
-            <Input.TextArea rows={3} placeholder="Подробности, цели, аудитория" />
-          </Form.Item>
           <Form.Item label="Нужные роли (через запятую)" name="roles_needed">
             <Input placeholder="Frontend, Backend, Product" />
           </Form.Item>

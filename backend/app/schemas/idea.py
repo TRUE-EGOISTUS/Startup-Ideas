@@ -5,14 +5,12 @@ from datetime import datetime, timedelta
 class IdeaCreate(BaseModel):
     title: str
     short_description: str
-    full_description: Optional[str] = None
     roles_needed: Optional[str] = None   # JSON строка
     tags: Optional[str] = None
 
 class IdeaUpdate(BaseModel):
     title: Optional[str] = None
     short_description: Optional[str] = None
-    full_description: Optional[str] = None
     roles_needed: Optional[str] = None
     tags: Optional[str] = None
     status: Optional[str] = None
@@ -21,8 +19,8 @@ class IdeaResponse(BaseModel):
     id: int
     title: str
     short_description: str
-    full_description: Optional[str]
     author_id: int
+    author_email: Optional[str] = None
     roles_needed: Optional[str]
     tags: Optional[str]
     status: str
@@ -70,6 +68,7 @@ class ProjectOut(BaseModel):
     description: Optional[str]
     idea_id: Optional[int]
     created_by: int
+    creator_email: Optional[str] = None
     created_at: datetime
 
     @computed_field

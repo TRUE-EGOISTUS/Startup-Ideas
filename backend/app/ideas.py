@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 from app.database import get_db
-from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, ProjectInvite
+from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, ProjectInvite, ProjectMessage
 from app.auth import get_current_user, get_optional_user
 from app.schemas.idea import (
     IdeaCreate, IdeaUpdate, IdeaResponse as IdeaResponseSchema,
@@ -11,6 +11,17 @@ from app.schemas.idea import (
 )
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
+
+def _delete_idea_tree(idea: Idea, db: Session) -> None:
+    """Remove an idea, its projects, and every dependent collaboration record."""
+    project_ids = [project_id for (project_id,) in db.query(Project.id).filter(Project.idea_id == idea.id).all()]
+    if project_ids:
+        db.query(ProjectMessage).filter(ProjectMessage.project_id.in_(project_ids)).delete(synchronize_session=False)
+        db.query(ProjectInvite).filter(ProjectInvite.project_id.in_(project_ids)).delete(synchronize_session=False)
+        db.query(ProjectMember).filter(ProjectMember.project_id.in_(project_ids)).delete(synchronize_session=False)
+        db.query(Project).filter(Project.id.in_(project_ids)).delete(synchronize_session=False)
+    db.query(IdeaResponse).filter(IdeaResponse.idea_id == idea.id).delete(synchronize_session=False)
+    db.delete(idea)
 
 # ---------- Идеи ----------
 @router.post("/", response_model=IdeaResponseSchema)
@@ -22,7 +33,6 @@ def create_idea(
     idea = Idea(
         title=idea_data.title,
         short_description=idea_data.short_description,
-        full_description=idea_data.full_description,
         author_id=current_user.id,
         roles_needed=idea_data.roles_needed,
         tags=idea_data.tags
@@ -53,8 +63,6 @@ def list_ideas(
     result = []
     for idea in ideas:
         item = IdeaResponseSchema.model_validate(idea)
-        if not current_user or current_user.id != idea.author_id:
-            item = item.model_copy(update={"full_description": None})
         result.append(item)
     return result
 
@@ -80,10 +88,7 @@ def get_idea(
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
-    item = IdeaResponseSchema.model_validate(idea)
-    if not current_user or current_user.id != idea.author_id:
-        item = item.model_copy(update={"full_description": None})
-    return item
+    return IdeaResponseSchema.model_validate(idea)
 
 @router.put("/{idea_id}", response_model=IdeaResponseSchema)
 def update_idea(
@@ -114,13 +119,9 @@ def delete_idea(
         raise HTTPException(status_code=404, detail="Idea not found")
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the author")
-    # Проверяем, нет ли уже проекта по этой идее
-    existing_project = db.query(Project).filter(Project.idea_id == idea_id).first()
-    if existing_project:
-        raise HTTPException(status_code=400, detail="Cannot delete idea because a project already exists")
-    db.delete(idea)
+    _delete_idea_tree(idea, db)
     db.commit()
-    return {"message": "Idea deleted"}
+    return {"message": "Idea and related projects deleted"}
 
 @router.put("/{idea_id}/status")
 def update_idea_status(
@@ -140,6 +141,11 @@ def update_idea_status(
         raise HTTPException(status_code=403, detail="Not the author")
     if status not in ["open", "in_progress", "closed"]:
         raise HTTPException(status_code=400, detail="Invalid status")
+    if status == "closed":
+        _delete_idea_tree(idea, db)
+        db.commit()
+        return {"message": "Idea closed and deleted"}
+
     idea.status = status
     db.commit()
     return {"message": f"Idea status changed to {status}"}

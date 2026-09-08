@@ -4,6 +4,7 @@ export type Task = {
   description?: string | null;
   status: string;
   author_id: number;
+  author_email?: string | null;
   reward?: number | null;
   deadline?: string | null;
   visibility?: string | null;
@@ -40,8 +41,8 @@ export type Idea = {
   id: number;
   title: string;
   short_description: string;
-  full_description?: string | null;
   author_id: number;
+  author_email?: string | null;
   roles_needed?: string | null;
   tags?: string | null;
   status: string;
@@ -64,6 +65,7 @@ export type Project = {
   description?: string | null;
   idea_id?: number | null;
   created_by: number;
+  creator_email?: string | null;
   created_at: string;
 };
 

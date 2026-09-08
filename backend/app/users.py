@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, UserRole
@@ -14,6 +14,14 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 UPLOAD_DIR = "static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+def remove_uploaded_file(image_url: str | None) -> None:
+    if not image_url or not image_url.startswith("/static/uploads/"):
+        return
+    filename = os.path.basename(image_url)
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    if os.path.isfile(filepath):
+        os.remove(filepath)
 
 @router.get("/me", response_model=UserRead)
 def get_me(current_user: User = Depends(get_current_user)):
@@ -95,6 +103,7 @@ def change_password(
 @router.post("/me/avatar")
 async def upload_avatar(
     file: UploadFile = File(...),
+    image_type: str = Form("avatar"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -109,6 +118,9 @@ async def upload_avatar(
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="File too large")
 
+    if image_type not in {"avatar", "cover"}:
+        raise HTTPException(status_code=400, detail="Unsupported profile image type")
+
     # Определяем расширение из content_type
     ext = "jpg" if file.content_type == "image/jpeg" else "png"
     filename = f"{uuid.uuid4()}.{ext}"
@@ -117,14 +129,23 @@ async def upload_avatar(
     with open(filepath, "wb") as f:
         f.write(content)
 
-    # Сохраняем путь к аватару в профиле
+    image_url = f"/static/uploads/{filename}"
     if current_user.role == UserRole.SPECIALIST:
         profile = current_user.specialist_profile
-        profile.avatar_url = f"/static/uploads/{filename}"
+        if image_type == "avatar":
+            remove_uploaded_file(profile.avatar_url)
+            profile.avatar_url = image_url
+        else:
+            remove_uploaded_file(profile.cover_url)
+            profile.cover_url = image_url
     else:
         profile = current_user.company_profile
-        profile.avatar_url = f"/static/uploads/{filename}"
+        if image_type == "avatar":
+            remove_uploaded_file(profile.logo_url)
+            profile.logo_url = image_url
+        else:
+            remove_uploaded_file(profile.cover_url)
+            profile.cover_url = image_url
     
     db.commit()
-    url = profile.avatar_url if current_user.role == UserRole.SPECIALIST else profile.avatar_url
-    return {"avatar_url": url}
+    return {"image_url": image_url, "image_type": image_type}

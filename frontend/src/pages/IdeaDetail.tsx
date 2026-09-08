@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button, Card, Descriptions, Form, Input, List, Select, Space, Tag, Typography, message, Tabs, Empty } from "antd";
 import { api } from "../lib/api";
 import { Idea, IdeaResponse } from "../types";
@@ -7,6 +7,7 @@ import { useAuthStore } from "../store/auth";
 
 export function IdeaDetailPage() {
   const { ideaId } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const [idea, setIdea] = useState<Idea | null>(null);
   const [responses, setResponses] = useState<IdeaResponse[]>([]);
@@ -76,7 +77,6 @@ export function IdeaDetailPage() {
     updateForm.setFieldsValue({
       title: idea.title,
       short_description: idea.short_description,
-      full_description: idea.full_description,
       roles_needed: idea.roles_needed,
       tags: idea.tags
     });
@@ -114,7 +114,12 @@ export function IdeaDetailPage() {
     try {
       await api.put(`/ideas/${ideaId}/status`, null, { params: { status: values.status } });
       message.success("Статус обновлен");
-      loadIdea();
+      if (values.status === "closed") {
+        message.success("Идея и связанные проекты удалены");
+        navigate("/ideas");
+      } else {
+        loadIdea();
+      }
     } catch {
       message.error("Не удалось обновить статус");
     }
@@ -208,7 +213,7 @@ export function IdeaDetailPage() {
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Короткое описание">{idea.short_description}</Descriptions.Item>
-            <Descriptions.Item label="Полное описание">{idea.full_description || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Создатель">{idea.author_email || "-"}</Descriptions.Item>
             <Descriptions.Item label="Роли">{idea.roles_needed || "-"}</Descriptions.Item>
             <Descriptions.Item label="Теги">{idea.tags || "-"}</Descriptions.Item>
           </Descriptions>
@@ -223,9 +228,6 @@ export function IdeaDetailPage() {
             </Form.Item>
             <Form.Item label="Короткое описание" name="short_description">
               <Input.TextArea rows={2} />
-            </Form.Item>
-            <Form.Item label="Полное описание" name="full_description">
-              <Input.TextArea rows={3} />
             </Form.Item>
             <Form.Item label="Роли (через запятую)" name="roles_needed">
               <Input />

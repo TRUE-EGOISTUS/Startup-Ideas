@@ -92,7 +92,7 @@ export function ProjectDetailPage() {
                   <Descriptions.Item label="Название">{project.name}</Descriptions.Item>
                   <Descriptions.Item label="Описание">{project.description || "-"}</Descriptions.Item>
                   <Descriptions.Item label="ID идеи">{project.idea_id ?? "-"}</Descriptions.Item>
-                  <Descriptions.Item label="Создатель">{project.created_by}</Descriptions.Item>
+                  <Descriptions.Item label="Создатель">{project.creator_email || "-"}</Descriptions.Item>
                 </Descriptions>
               </Card>
             ) : (

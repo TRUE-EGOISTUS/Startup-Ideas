@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button, Card, Descriptions, Form, Input, InputNumber, List, Tag, Typography, message, Tabs, Empty } from "antd";
 import { api } from "../lib/api";
 import { Task, TaskExecution, TaskResponse } from "../types";
@@ -7,6 +7,7 @@ import { useAuthStore } from "../store/auth";
 
 export function TaskDetailPage() {
   const { taskId } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const [solutions, setSolutions] = useState<TaskExecution[]>([]);
   const [task, setTask] = useState<Task | null>(null);
@@ -139,8 +140,8 @@ export function TaskDetailPage() {
     }
     try {
       await api.put(`/tasks/${taskId}/close`);
-      message.success("Задача закрыта");
-      loadTask();
+      message.success("Задача закрыта и удалена");
+      navigate("/tasks");
     } catch {
       message.error("Не удалось закрыть задачу");
     }
@@ -154,6 +155,7 @@ export function TaskDetailPage() {
         <Card title="Детали">
           <Descriptions column={1} bordered>
             <Descriptions.Item label="Название">{task.title}</Descriptions.Item>
+            <Descriptions.Item label="Создатель">{task.author_email || "-"}</Descriptions.Item>
             <Descriptions.Item label="Описание">{task.description || "-"}</Descriptions.Item>
             <Descriptions.Item label="Статус">
               <Tag className="status-tag" color={task.status === "open" ? "green" : task.status === "closed" ? "red" : "blue"}>
