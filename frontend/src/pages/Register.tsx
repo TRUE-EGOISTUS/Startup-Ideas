@@ -17,8 +17,8 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[70vh] flex items-center justify-center">
-      <Card className="max-w-md w-full" title="Регистрация">
+    <div className="auth-page">
+      <Card className="auth-card" title="Регистрация">
         <Form layout="vertical" onFinish={onFinish}>
           <Form.Item label="Почта" name="email" rules={[{ required: true }]}> 
             <Input type="email" placeholder="name@example.com" />

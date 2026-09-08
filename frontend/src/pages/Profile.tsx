@@ -13,14 +13,14 @@ export function ProfilePage() {
             <Link to="/profile/account">Аккаунт</Link>
           </Button>
           {user?.role === "company" && (
-            <Button>
+            <Button className="profile-secondary-button">
               <Link to="/profile/details">Профильные данные</Link>
             </Button>
           )}
-          <Button>
+          <Button className="profile-secondary-button">
             <Link to="/profile/avatar">Фото профиля / логотип</Link>
           </Button>
-          <Button>
+          <Button className="profile-secondary-button">
             <Link to="/profile/password">Смена пароля</Link>
           </Button>
         </Space>

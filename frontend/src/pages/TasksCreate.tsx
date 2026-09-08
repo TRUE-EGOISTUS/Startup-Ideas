@@ -49,7 +49,7 @@ export function TasksCreatePage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Новая задача</Typography.Title>
+      <Typography.Title level={2} className="page-title">Новая задача</Typography.Title>
       <Card title="Основные параметры">
         <Form layout="vertical" onFinish={onCreate} form={form} initialValues={{ execution_mode: "classic", visibility: "public" }}>
           <Form.Item label="Название задачи" name="title" rules={[{ required: true }]}>

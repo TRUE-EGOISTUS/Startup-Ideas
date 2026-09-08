@@ -13,7 +13,7 @@ export function ProfilePasswordPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Смена пароля</Typography.Title>
+      <Typography.Title level={2} className="page-title">Смена пароля</Typography.Title>
       <Card>
         <Form layout="vertical" onFinish={onChangePassword}>
           <Form.Item label="Текущий пароль" name="old_password" rules={[{ required: true }]}> 

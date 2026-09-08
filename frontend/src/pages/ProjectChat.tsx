@@ -44,7 +44,7 @@ export function ProjectChatPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Чат проекта #{projectId}</Typography.Title>
+      <Typography.Title level={2} className="page-title">Чат проекта #{projectId}</Typography.Title>
       <Card>
         <Typography.Text type="secondary">Общие сообщения участников проекта</Typography.Text>
       </Card>

@@ -49,7 +49,7 @@ export function ProfileDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Профильные данные</Typography.Title>
+      <Typography.Title level={2} className="page-title">Профильные данные</Typography.Title>
       <Card>
         {user?.role === "company" ? (
           <Form layout="vertical" onFinish={onUpdateProfile} form={form}>
