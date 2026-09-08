@@ -3,11 +3,18 @@
   --home-surface: var(--app-surface);
   --home-ink: var(--app-ink);
   --home-muted: var(--app-muted);
-  --home-accent: var(--app-accent-2);
-  --home-accent-2: var(--app-accent);
+  --home-accent: var(--app-accent);
+  --home-accent-hover: var(--app-accent-hover);
+  --home-accent-pressed: var(--app-accent-pressed);
+  --home-mint: var(--app-accent-2);
+  --home-mint-hover: var(--app-accent-2-hover);
+  --home-mint-pressed: var(--app-accent-2-pressed);
   --home-line: var(--app-border);
   --home-shadow: var(--app-shadow);
   --home-radius: var(--app-radius);
+}
+main {
+  background: var(--home-ink);
 }
 
 .home-page {
@@ -22,6 +29,10 @@
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 32px;
   align-items: center;
+  padding: 48px;
+  border-radius: 24px;
+  background: var(--home-ink);
+  box-shadow: 0 24px 60px rgba(23, 24, 31, 0.16);
 }
 
 .home-hero h1 {
@@ -29,21 +40,25 @@
   line-height: 1.05;
   margin: 12px 0 16px;
   font-weight: 700;
-  font-family: "Space Grotesk", "Manrope", sans-serif;
+  font-family: var(--app-font-display);
 }
 
 .home-eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 12px;
-  color: var(--home-muted);
+  color: #ffffff;
   font-weight: 700;
+}
+
+.home-eyes{
+  color: #ffffff;
 }
 
 .home-lead {
   font-size: 18px;
   line-height: 1.6;
-  color: var(--home-muted);
+  color: #ffffff;
 }
 
 .home-hero-actions {
@@ -52,10 +67,49 @@
   gap: 16px;
   flex-wrap: wrap;
 }
+.home-page .ant-btn-primary.home-hero-button {
+  background-color: var(--home-accent);
+  border-color: var(--home-accent);
+  color: #ffffff;
+}
+
+.home-page .ant-btn-primary.home-hero-button:hover,
+.home-page .ant-btn-primary.home-hero-button:focus {
+  background-color: var(--home-accent-hover);
+  border-color: var(--home-accent-hover);
+}
+
+.home-page .ant-btn-primary.home-hero-button:active {
+  background-color: var(--home-accent-pressed);
+  border-color: var(--home-accent-pressed);
+}
+
+.home-page .ant-btn-default.home-hero-button_secondary {
+  background-color: var(--home-mint);
+  border-color: var(--home-mint);
+  color: #ffffff;
+}
+
+.home-page .ant-btn-default.home-hero-button_secondary:hover,
+.home-page .ant-btn-default.home-hero-button_secondary:focus {
+  background-color: var(--home-mint-hover);
+  border-color: var(--home-mint-hover);
+  color: #ffffff;
+}
+
+.home-page .ant-btn-default.home-hero-button_secondary:active {
+  background-color: var(--home-mint-pressed);
+  border-color: var(--home-mint-pressed);
+  color: #ffffff;
+}
 
 .home-banner {
   position: relative;
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(249, 115, 22, 0.2));
+  background: linear-gradient(
+    135deg,
+    rgba(79, 70, 229, 0.2),
+    rgba(0, 217, 163, 0.16)
+  );
   border-radius: var(--home-radius);
   padding: 32px;
   min-height: 280px;
@@ -100,20 +154,32 @@
   margin-top: 16px;
 }
 
-.home-stat {
-  background: #f7f8fb;
+.home-stage {
+  position: relative;
+  background: #EEF2FF;
   padding: 12px;
   border-radius: 12px;
-  text-align: center;
+  border-top: 3px solid var(--home-accent);
 }
 
-.home-stat-number {
-  font-size: 20px;
+.home-stage:nth-child(2) {
+  border-top-color: var(--home-mint);
+}
+
+.home-stage:nth-child(3) {
+  border-top-color: var(--home-accent-hover);
+}
+
+.home-stage-title {
+  display: block;
+  color: var(--home-ink);
+  font-size: 14px;
   font-weight: 700;
 }
 
-.home-stat-label {
+.home-stage-label {
   display: block;
+  margin-top: 4px;
   font-size: 12px;
   color: var(--home-muted);
 }
@@ -130,12 +196,26 @@
   font-weight: 600;
   background: var(--home-surface);
   cursor: pointer;
+  color: var(--home-ink);
+}
+.home-toggle button:hover {
+  background: var(--home-accent);
+  color: var(--home-surface);
+  border-color: var(--home-accent);
+}
+.home-toggle button.is-active {
+  background: var(--home-accent);
+  color: var(--home-surface);
+  border-color: var(--home-accent);
 }
 
-.home-toggle button.is-active {
-  background: var(--home-ink);
-  color: white;
-  border-color: var(--home-ink);
+.home-toggle button.is-active:hover {
+  background: var(--home-accent-hover);
+  border-color: var(--home-accent-hover);
+}
+.home-toggle button.is-active:active {
+  background: var(--home-accent-pressed);
+  border-color: var(--home-accent-pressed);
 }
 
 .home-search {
@@ -176,6 +256,7 @@
 .home-section h2 {
   font-size: 28px;
   margin-bottom: 8px;
+  color: var(--home-bg);
 }
 
 .home-section p {
@@ -193,21 +274,21 @@
   padding: 20px;
   border-radius: 16px;
   box-shadow: var(--home-shadow);
-  border: 1px solid rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(23, 24, 31, 0.08);
   transition: transform 0.2s ease, border 0.2s ease;
 }
 
 .home-card:hover {
   transform: translateY(-4px);
-  border-color: rgba(27, 142, 242, 0.3);
+  border-color: rgba(79, 70, 229, 0.35);
 }
 
 .home-tag {
   display: inline-flex;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
-  color: #1e3a8a;
+  background: #EEF2FF;
+  color: var(--home-accent);
   font-weight: 600;
   font-size: 12px;
   margin-bottom: 12px;
@@ -232,8 +313,15 @@
   box-shadow: var(--home-shadow);
 }
 
+.home-loading {
+  grid-column: 1 / -1;
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+}
+
 .home-skill-card {
-  background: linear-gradient(160deg, #ffffff 0%, rgba(37, 99, 235, 0.06) 100%);
+  background: linear-gradient(160deg, #FFFFFF 0%, rgba(79, 70, 229, 0.06) 100%);
   padding: 20px;
   border-radius: 16px;
   box-shadow: var(--home-shadow);
@@ -246,8 +334,8 @@
 }
 
 .home-pill {
-  background: rgba(249, 115, 22, 0.12);
-  color: #9a3412;
+  background: rgba(0, 217, 163, 0.14);
+  color: #007A60;
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -272,9 +360,17 @@
 }
 
 .btn-primary {
-  background: var(--home-accent-2);
-  color: white;
-  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.18);
+  background: var(--home-accent);
+  color: #FFFFFF;
+  box-shadow: 0 10px 20px rgba(79, 70, 229, 0.18);
+}
+
+.btn-primary:hover {
+  background: var(--home-accent-hover);
+}
+
+.btn-primary:active {
+  background: var(--home-accent-pressed);
 }
 
 .btn:hover {
@@ -283,12 +379,21 @@
 }
 
 @media (max-width: 900px) {
+  .home-hero {
+    padding: 32px;
+  }
+
   .home-banner-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
 @media (max-width: 600px) {
+  .home-hero {
+    padding: 24px;
+    border-radius: 18px;
+  }
+
   .home-hero-actions {
     flex-direction: column;
     align-items: stretch;

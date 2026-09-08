@@ -52,7 +52,7 @@ export function MainLayout() {
             type="text"
           />
           <Typography.Title level={4} className="!mb-0 app-title">
-            Startup Ideas
+            JUNION
           </Typography.Title>
         </Space>
         <Menu
@@ -70,7 +70,7 @@ export function MainLayout() {
               </Button>
             </>
           ) : (
-            <Button icon={<LoginOutlined />} type="primary">
+            <Button className="app-login-button" icon={<LoginOutlined />} type="primary">
               <Link to="/login">Войти</Link>
             </Button>
           )}
@@ -98,7 +98,7 @@ export function MainLayout() {
               </Button>
             </>
           ) : (
-            <Button icon={<LoginOutlined />} type="primary" className="w-full">
+            <Button className="app-login-button w-full" icon={<LoginOutlined />} type="primary">
               <Link to="/login">Войти</Link>
             </Button>
           )}

@@ -37,7 +37,7 @@ export function IdeasPage() {
   return (
     <div className="space-y-6">
       <div className="page-toolbar">
-        <Typography.Title level={2}>Идеи</Typography.Title>
+        <Typography.Title level={2} className="page-title">Идеи</Typography.Title>
         <Button type="primary">
           <Link to="/ideas/new">Создать идею</Link>
         </Button>

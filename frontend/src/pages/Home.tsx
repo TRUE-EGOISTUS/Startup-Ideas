@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Empty } from "antd";
+import { Button, Empty, Spin } from "antd";
 import { Link } from "react-router-dom";
 import "./Home.css";
 import { api } from "../lib/api";
@@ -51,43 +51,38 @@ export function HomePage() {
     <div className="home-page">
       <section className="home-hero">
         <div>
-          <p className="home-eyebrow">Платформа для быстрых команд и задач</p>
-          <h1>Найди людей под идею или проект за пару дней</h1>
+          <p className="home-eyebrow">ПЛАТФОРМА ОПЫТА И КОМАНД ДЛЯ СТАРТАПОВ</p>
+          <h1 className="home-eyes">От первой задачи до своей команды</h1>
           <p className="home-lead">
-            Соединяем работодателей, стартапы и талантливых специалистов в одном месте. Настраивайте
-            поиск, находите сильные профили и запускайте работу сразу.
+            Выполняй небольшие задачи, чтобы получить первый опыт и подтверждённые навыки, а затем
+            используй репутацию, чтобы присоединиться к команде или собрать свою. Компании находят
+            джунов ещё до найма, а стартаперы — партнёров с проверенными скиллами.
           </p>
           <div className="home-hero-actions">
-            <Button type="primary">
-              <Link to="/ideas">Перейти к идеям</Link>
+            <Button type="primary" className="home-hero-button">
+              <Link to="/ideas">Найти идею</Link>
             </Button>
-            <Button>
-              <Link to="/projects">Перейти к проектам</Link>
-            </Button>
-            <Button type="default">
-              <Link to="/login">Вход</Link>
-            </Button>
-            <Button type="default">
-              <Link to="/register">Регистрация</Link>
+            <Button type="default" className="home-hero-button_secondary">
+              <Link to="/projects">Присоединиться к проекту</Link>
             </Button>
           </div>
         </div>
         <div className="home-banner" aria-hidden="true">
           <div className="home-banner-card">
-            <div className="home-banner-title">Запуск MVP за 2 недели</div>
-            <div className="home-banner-meta">Команда из 4 специалистов</div>
+            <div className="home-banner-title">Путь на платформе</div>
+            <div className="home-banner-meta">От первой задачи до своей команды</div>
             <div className="home-banner-grid">
-              <div className="home-stat">
-                <span className="home-stat-number">4.8</span>
-                <span className="home-stat-label">Средний рейтинг</span>
+              <div className="home-stage">
+                <span className="home-stage-title">Задачи</span>
+                <span className="home-stage-label">Решай реальные задачи</span>
               </div>
-              <div className="home-stat">
-                <span className="home-stat-number">36</span>
-                <span className="home-stat-label">Активных задач</span>
+              <div className="home-stage">
+                <span className="home-stage-title">Навыки</span>
+                <span className="home-stage-label">Подтверждай свой опыт</span>
               </div>
-              <div className="home-stat">
-                <span className="home-stat-number">12</span>
-                <span className="home-stat-label">Новых команд</span>
+              <div className="home-stage">
+                <span className="home-stage-title">Команда</span>
+                <span className="home-stage-label">Присоединяйся или собирай свою</span>
               </div>
             </div>
           </div>
@@ -97,14 +92,14 @@ export function HomePage() {
       <section className="home-toggle" aria-label="Переключатель контента">
         <button
           type="button"
-          className={mode === "seekers" ? "is-active" : undefined}
+          className={mode === "seekers" ? "is-active" : "is-default"}
           onClick={() => setMode("seekers")}
         >
           Соискателям
         </button>
         <button
           type="button"
-          className={mode === "employers" ? "is-active" : undefined}
+          className={mode === "employers" ? "is-active" : "is-default"}
           onClick={() => setMode("employers")}
         >
           Работодателям
@@ -143,6 +138,11 @@ export function HomePage() {
 
         {mode === "seekers" ? (
           <div className="home-grid">
+            {loadingTasks && (
+              <div className="home-loading">
+                <Spin />
+              </div>
+            )}
             {popularTasks.length === 0 && !loadingTasks && (
               <div className="home-empty">
                 <Empty description="Нет доступных задач" />
@@ -162,7 +162,7 @@ export function HomePage() {
         ) : (
           <div className="home-grid">
             <div className="home-empty">
-              <Empty description="Пока нет доступных профилей специалистов" />
+              <Empty description="Популярные профили специалистов появятся позже" />
             </div>
           </div>
         )}
@@ -176,6 +176,11 @@ export function HomePage() {
 
         {mode === "seekers" ? (
           <div className="home-grid">
+            {loadingTasks && (
+              <div className="home-loading">
+                <Spin />
+              </div>
+            )}
             {skillsBuckets.length === 0 && !loadingTasks && (
               <div className="home-empty">
                 <Empty description="Нет задач с указанными навыками" />

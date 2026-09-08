@@ -27,7 +27,7 @@ export function ProjectsPage() {
   return (
     <div className="space-y-6">
       <div className="page-toolbar">
-        <Typography.Title level={2}>Мои проекты</Typography.Title>
+        <Typography.Title level={2} className="page-title">Мои проекты</Typography.Title>
         <Button onClick={fetchProjects}>Обновить</Button>
       </div>
       <Card>

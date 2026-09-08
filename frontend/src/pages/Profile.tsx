@@ -6,7 +6,7 @@ export function ProfilePage() {
   const { user } = useAuthStore();
   return (
     <div className="space-y-6">
-      <Typography.Title level={2}>Профиль</Typography.Title>
+      <Typography.Title level={2} className="page-title">Профиль</Typography.Title>
       <Card>
         <Space wrap>
           <Button type="primary">

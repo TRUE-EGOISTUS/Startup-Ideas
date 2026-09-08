@@ -36,7 +36,7 @@ export function TasksPage() {
   return (
     <div className="space-y-6">
       <div className="page-toolbar">
-        <Typography.Title level={2}>Задачи</Typography.Title>
+        <Typography.Title level={2} className="page-title">Задачи</Typography.Title>
         {user?.role === "company" && (
           <Button type="primary">
             <Link to="/tasks/new">Создать задачу</Link>
