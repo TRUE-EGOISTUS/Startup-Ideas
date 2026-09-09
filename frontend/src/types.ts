@@ -89,3 +89,32 @@ export type Message = {
   created_at: string;
   sender_name?: string | null;
 };
+
+export type PublicUser = {
+  id: number;
+  email: string;
+  role: 'specialist' | 'company';
+  username: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string | null;
+  specialist_profile?: {
+    id: number;
+    user_id: number;
+    skills: string | null;
+    rating: number;
+    github_url: string | null;
+    portfolio: string | null;
+    avatar_url: string | null;
+    cover_url: string | null;
+  } | null;
+  company_profile?: {
+    id: number;
+    user_id: number;
+    company_name: string | null;
+    description: string | null;
+    logo_url: string | null;
+    cover_url: string | null;
+    contact_info: string | null;
+  } | null;
+};

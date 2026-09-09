@@ -85,3 +85,29 @@ class CompanyProfileUpdate(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
+
+class PublicUserRead(UserBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime]
+    username: Optional[str]
+    specialist_profile: Optional[SpecialistProfileRead] = None
+    company_profile: Optional[CompanyProfileRead] = None
+
+    @computed_field
+    @property
+    def created_at_msk(self) -> str:
+        msk = self.created_at + timedelta(hours=3)
+        return msk.isoformat(timespec='milliseconds')
+
+    @computed_field
+    @property
+    def updated_at_msk(self) -> Optional[str]:
+        if self.updated_at:
+            msk = self.updated_at + timedelta(hours=3)
+            return msk.isoformat(timespec='milliseconds')
+        return None
+
+    class Config:
+        from_attributes = True

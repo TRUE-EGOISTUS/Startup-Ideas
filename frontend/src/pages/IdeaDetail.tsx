@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom"; // добавлен Link
 import { Button, Card, Descriptions, Form, Input, List, Select, Space, Tag, Typography, message, Tabs, Empty } from "antd";
 import { api } from "../lib/api";
 import { Idea, IdeaResponse } from "../types";
@@ -15,15 +15,11 @@ export function IdeaDetailPage() {
   const [hasProjects, setHasProjects] = useState(false);
   const [updateForm] = Form.useForm();
   const canRespond = useMemo(() => {
-    if (!user || !idea) {
-      return false;
-    }
+    if (!user || !idea) return false;
     return !hasProjects && user.id !== idea.author_id;
   }, [hasProjects, user, idea]);
   const roleOptions = useMemo(() => {
-    if (!idea?.roles_needed) {
-      return [];
-    }
+    if (!idea?.roles_needed) return [];
     return idea.roles_needed
       .split(",")
       .map((role) => role.trim())
@@ -32,9 +28,7 @@ export function IdeaDetailPage() {
   }, [idea?.roles_needed]);
 
   const loadIdea = async () => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       const { data } = await api.get<Idea>(`/ideas/${ideaId}`);
       setIdea(data);
@@ -44,9 +38,7 @@ export function IdeaDetailPage() {
   };
 
   const loadResponses = async () => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       const { data } = await api.get<IdeaResponse[]>(`/ideas/${ideaId}/responses`);
       setResponses(data);
@@ -59,21 +51,15 @@ export function IdeaDetailPage() {
     loadIdea();
     if (user) {
       api.get("/ideas/projects/my")
-        .then(({ data }) => {
-          setHasProjects(Array.isArray(data) && data.length > 0);
-        })
-        .catch(() => {
-          setHasProjects(false);
-        });
+        .then(({ data }) => setHasProjects(Array.isArray(data) && data.length > 0))
+        .catch(() => setHasProjects(false));
     } else {
       setHasProjects(false);
     }
   }, [ideaId, user?.id]);
 
   useEffect(() => {
-    if (!idea) {
-      return;
-    }
+    if (!idea) return;
     updateForm.setFieldsValue({
       title: idea.title,
       short_description: idea.short_description,
@@ -83,9 +69,7 @@ export function IdeaDetailPage() {
   }, [idea, updateForm]);
 
   const onUpdate = async (values: Record<string, unknown>) => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.put(`/ideas/${ideaId}`, values);
       message.success("Идея обновлена");
@@ -96,21 +80,18 @@ export function IdeaDetailPage() {
   };
 
   const onDelete = async () => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.delete(`/ideas/${ideaId}`);
       message.success("Идея удалена");
+      navigate("/ideas");
     } catch {
       message.error("Не удалось удалить идею");
     }
   };
 
   const onUpdateStatus = async (values: { status: string }) => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.put(`/ideas/${ideaId}/status`, null, { params: { status: values.status } });
       message.success("Статус обновлен");
@@ -126,9 +107,7 @@ export function IdeaDetailPage() {
   };
 
   const onUpdateRoles = async (values: { roles_needed: string }) => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.put(`/ideas/${ideaId}/roles`, null, { params: { roles_needed: values.roles_needed } });
       message.success("Роли обновлены");
@@ -139,33 +118,29 @@ export function IdeaDetailPage() {
   };
 
   const onRespond = async (values: { role: string; message?: string }) => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.post(`/ideas/${ideaId}/interest`, values);
       message.success("Отклик отправлен");
+      loadIdea();
     } catch {
       message.error("Не удалось отправить отклик");
     }
   };
 
   const onWithdraw = async () => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.delete(`/ideas/${ideaId}/interest`);
       message.success("Отклик отозван");
+      loadIdea();
     } catch {
       message.error("Не удалось отозвать отклик");
     }
   };
 
   const onAcceptResponse = async (responseId: number) => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.put(`/ideas/${ideaId}/responses/${responseId}/accept`);
       message.success("Отклик принят");
@@ -176,9 +151,7 @@ export function IdeaDetailPage() {
   };
 
   const onRejectResponse = async (responseId: number) => {
-    if (!ideaId) {
-      return;
-    }
+    if (!ideaId) return;
     try {
       await api.put(`/ideas/${ideaId}/responses/${responseId}/reject`);
       message.success("Отклик отклонен");
@@ -213,7 +186,9 @@ export function IdeaDetailPage() {
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Короткое описание">{idea.short_description}</Descriptions.Item>
-            <Descriptions.Item label="Создатель">{idea.author_email || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Создатель">
+              <Link to={`/profile/${idea.author_id}`}>{idea.author_email || "-"}</Link>
+            </Descriptions.Item>
             <Descriptions.Item label="Роли">{idea.roles_needed || "-"}</Descriptions.Item>
             <Descriptions.Item label="Теги">{idea.tags || "-"}</Descriptions.Item>
           </Descriptions>
@@ -223,18 +198,10 @@ export function IdeaDetailPage() {
       {section === "update" && (
         <Card title="Обновить идею">
           <Form layout="vertical" onFinish={onUpdate} form={updateForm}>
-            <Form.Item label="Название" name="title">
-              <Input />
-            </Form.Item>
-            <Form.Item label="Короткое описание" name="short_description">
-              <Input.TextArea rows={2} />
-            </Form.Item>
-            <Form.Item label="Роли (через запятую)" name="roles_needed">
-              <Input />
-            </Form.Item>
-            <Form.Item label="Теги" name="tags">
-              <Input />
-            </Form.Item>
+            <Form.Item label="Название" name="title"><Input /></Form.Item>
+            <Form.Item label="Короткое описание" name="short_description"><Input.TextArea rows={2} /></Form.Item>
+            <Form.Item label="Роли (через запятую)" name="roles_needed"><Input /></Form.Item>
+            <Form.Item label="Теги" name="tags"><Input /></Form.Item>
             <Button type="primary" htmlType="submit">Сохранить</Button>
           </Form>
         </Card>
@@ -244,19 +211,17 @@ export function IdeaDetailPage() {
         <Card title="Статус и роли">
           <Space direction="vertical" className="w-full">
             <Form layout="inline" onFinish={onUpdateStatus}>
-              <Form.Item label="Статус" name="status" rules={[{ required: true }]}> 
-                <Select
-                  options={[
-                    { value: "open", label: "open" },
-                    { value: "in_progress", label: "in_progress" },
-                    { value: "closed", label: "closed" }
-                  ]}
-                />
+              <Form.Item label="Статус" name="status" rules={[{ required: true }]}>
+                <Select options={[
+                  { value: "open", label: "open" },
+                  { value: "in_progress", label: "in_progress" },
+                  { value: "closed", label: "closed" }
+                ]} />
               </Form.Item>
               <Button type="primary" htmlType="submit">Обновить</Button>
             </Form>
             <Form layout="inline" onFinish={onUpdateRoles}>
-              <Form.Item label="Роли" name="roles_needed" rules={[{ required: true }]}> 
+              <Form.Item label="Роли" name="roles_needed" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
               <Button type="primary" htmlType="submit">Обновить</Button>
@@ -273,7 +238,7 @@ export function IdeaDetailPage() {
               name="role"
               rules={[{ required: true }]}
               help={roleOptions.length === 0 ? "Автор не указал роли для откликов" : undefined}
-            > 
+            >
               <Select
                 placeholder="Выберите роль"
                 options={roleOptions}
@@ -299,13 +264,7 @@ export function IdeaDetailPage() {
           </div>
           <List
             dataSource={responses}
-            locale={{
-              emptyText: (
-                <div className="empty-panel">
-                  <Empty description="Откликов пока нет" />
-                </div>
-              )
-            }}
+            locale={{ emptyText: <div className="empty-panel"><Empty description="Откликов пока нет" /></div> }}
             renderItem={(item) => (
               <List.Item
                 actions={[
@@ -314,7 +273,7 @@ export function IdeaDetailPage() {
                 ]}
               >
                 <List.Item.Meta
-                  title={`User ${item.user_id} · ${item.role}`}
+                  title={<Link to={`/profile/${item.user_id}`}>User {item.user_id} · {item.role}</Link>}
                   description={item.message || "Сообщение не указано"}
                 />
                 <Tag className="status-tag">{item.status}</Tag>

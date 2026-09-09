@@ -81,6 +81,7 @@ export const router = createBrowserRouter([
           </RequireAuth>
         )
       },
+      // Свой профиль
       {
         path: "profile",
         element: (
@@ -89,6 +90,16 @@ export const router = createBrowserRouter([
           </RequireAuth>
         )
       },
+      // Публичный профиль другого пользователя
+      {
+        path: "profile/:userId",
+        element: (
+          <RequireAuth>
+            <ProfilePage />
+          </RequireAuth>
+        )
+      },
+      // Остальные подстраницы профиля (если они есть)
       {
         path: "profile/account",
         element: (
