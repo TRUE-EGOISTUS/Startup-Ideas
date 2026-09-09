@@ -105,6 +105,15 @@ a {
   margin-bottom: 0 !important;
 }
 
+.app-container .ant-tabs-tab-btn {
+  color: var(--app-surface) !important;
+}
+
+.app-container .ant-tabs-tab:hover .ant-tabs-tab-btn,
+.app-container .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--app-accent) !important;
+}
+
 .ant-card-body {
   color: var(--app-ink);
 }

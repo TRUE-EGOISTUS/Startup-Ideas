@@ -155,7 +155,10 @@ def get_task(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
-    task = db.query(Task).options(selectinload(Task.responses)).filter(
+    task = db.query(Task).options(
+        selectinload(Task.responses),
+        selectinload(Task.executions)
+    ).filter(
         Task.id == task_id,
         or_(
             Task.visibility == "public",
@@ -165,6 +168,17 @@ def get_task(
     ).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    _handle_executor_deadline(task, db)
+    db.refresh(task)
+
+    if current_user and current_user.id not in {task.author_id, task.assigned_to_id}:
+        task.executions = []
+    elif current_user and current_user.id == task.assigned_to_id:
+        task.executions = [execution for execution in task.executions if execution.user_id == current_user.id]
+    elif not current_user:
+        task.executions = []
+
     return task
 
 @router.post("/{task_id}/responses", response_model=TaskResponseOut)
@@ -255,6 +269,33 @@ def accept_response(
     
     db.commit()
     return {"message": "Executor selected, task in progress"}
+
+@router.put("/{task_id}/responses/{response_id}/reject")
+def reject_response(
+    task_id: int,
+    response_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    task = db.query(Task).filter(Task.id == task_id, Task.author_id == current_user.id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or not owned by you")
+    if task.execution_mode != "classic":
+        raise HTTPException(status_code=400, detail="This endpoint is only for classic execution mode tasks")
+    if task.status not in ["open", "ready_for_next"] or task.assigned_to_id is not None:
+        raise HTTPException(status_code=400, detail="Task is not open for response decisions")
+
+    response = db.query(TaskResponseModel).filter(
+        TaskResponseModel.id == response_id,
+        TaskResponseModel.task_id == task_id,
+        TaskResponseModel.status == "pending"
+    ).first()
+    if not response:
+        raise HTTPException(status_code=404, detail="Response not found or already processed")
+
+    response.status = "rejected"
+    db.commit()
+    return {"message": "Response rejected"}
 
 @router.post("/{task_id}/complete")
 def complete_task(

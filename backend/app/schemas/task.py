@@ -81,12 +81,6 @@ class TaskResponseOut(BaseModel):
     class Config:
         from_attributes = True
 
-class TaskDetailOut(TaskResponseSchema):
-    responses: Optional[list[TaskResponseOut]] = None
-
-    class Config:
-        from_attributes = True
-
 class TaskCompleteRequest(BaseModel):
     solution_url: Optional[str] = None
     comment: Optional[str] = None
@@ -111,6 +105,13 @@ class TaskExecutionOut(BaseModel):
     def created_at_msk(self) -> str:
         msk = self.created_at + timedelta(hours=3)
         return msk.isoformat(timespec='milliseconds')
+
+    class Config:
+        from_attributes = True
+
+class TaskDetailOut(TaskResponseSchema):
+    responses: Optional[list[TaskResponseOut]] = None
+    executions: Optional[list[TaskExecutionOut]] = None
 
     class Config:
         from_attributes = True

@@ -17,6 +17,13 @@ export function TaskDetailPage() {
   const isClassicMode = !task?.execution_mode || task?.execution_mode === "classic";
   const canChat = !!task && !!user && (user.id === task.author_id || user.id === task.assigned_to_id);
   const responses = task?.responses ?? [];
+  const executions = task?.executions ?? [];
+  const canRespondClassic = isSpecialist && isClassicMode &&
+    (task?.status === "open" || task?.status === "ready_for_next");
+  const canSubmitClassicSolution = isSpecialist && isClassicMode &&
+    task?.assigned_to_id === user?.id && task?.status === "in_progress";
+  const canReviewClassicSolution = isCompany && isClassicMode && task?.status === "awaiting_review";
+  const pendingResponses = responses.filter((response) => response.status === "pending");
 
   const loadTask = async () => {
     if (!taskId) {
@@ -75,6 +82,19 @@ export function TaskDetailPage() {
       loadTask();
     } catch {
       message.error("Не удалось принять отклик");
+    }
+  };
+
+  const onRejectResponse = async (responseId: number) => {
+    if (!taskId) {
+      return;
+    }
+    try {
+      await api.put(`/tasks/${taskId}/responses/${responseId}/reject`);
+      message.success("Отклик отклонён");
+      loadTask();
+    } catch {
+      message.error("Не удалось отклонить отклик");
     }
   };
 
@@ -186,32 +206,36 @@ export function TaskDetailPage() {
           }
         ]
       : []),
-    ...(isSpecialist && isClassicMode
+    ...(isSpecialist && isClassicMode && (canRespondClassic || canSubmitClassicSolution)
       ? [
           {
             key: "respond",
-            label: "Отклик и сдача",
+            label: canSubmitClassicSolution ? "Сдача решения" : "Отклик",
             children: (
               <div className="space-y-6">
-                <Card title="Откликнуться">
-                  <Form layout="vertical" onFinish={onRespond}>
-                    <Form.Item label="Сообщение" name="message" rules={[{ required: true }]}>
-                      <Input.TextArea rows={2} />
-                    </Form.Item>
-                    <Button type="primary" htmlType="submit">Отправить</Button>
-                  </Form>
-                </Card>
-                <Card title="Завершить задачу (исполнитель)">
-                  <Form layout="vertical" onFinish={onComplete}>
-                    <Form.Item label="Ссылка на решение" name="solution_url">
-                      <Input />
-                    </Form.Item>
-                    <Form.Item label="Комментарий" name="comment">
-                      <Input.TextArea rows={2} />
-                    </Form.Item>
-                    <Button type="primary" htmlType="submit">Отправить</Button>
-                  </Form>
-                </Card>
+                {canRespondClassic && (
+                  <Card title="Откликнуться">
+                    <Form layout="vertical" onFinish={onRespond}>
+                      <Form.Item label="Сообщение" name="message" rules={[{ required: true }]}>
+                        <Input.TextArea rows={2} />
+                      </Form.Item>
+                      <Button type="primary" htmlType="submit">Отправить</Button>
+                    </Form>
+                  </Card>
+                )}
+                {canSubmitClassicSolution && (
+                  <Card title="Завершить задачу (исполнитель)">
+                    <Form layout="vertical" onFinish={onComplete}>
+                      <Form.Item label="Ссылка на решение" name="solution_url">
+                        <Input />
+                      </Form.Item>
+                      <Form.Item label="Комментарий" name="comment">
+                        <Input.TextArea rows={2} />
+                      </Form.Item>
+                      <Button type="primary" htmlType="submit">Отправить</Button>
+                    </Form>
+                  </Card>
+                )}
               </div>
             )
           }
@@ -247,11 +271,11 @@ export function TaskDetailPage() {
               <div className="space-y-6">
                 <Card title="Отклики специалистов">
                   <div className="page-toolbar">
-                    <Typography.Text>Откликов: {responses.length}</Typography.Text>
+                    <Typography.Text>Откликов: {pendingResponses.length}</Typography.Text>
                     <Button onClick={loadTask}>Обновить отклики</Button>
                   </div>
                   <List
-                    dataSource={responses}
+                    dataSource={pendingResponses}
                     locale={{
                       emptyText: (
                         <div className="empty-panel">
@@ -262,7 +286,8 @@ export function TaskDetailPage() {
                     renderItem={(item: TaskResponse) => (
                       <List.Item
                         actions={[
-                          <Button key="accept" type="primary" onClick={() => onAcceptResponse(item.id)}>Назначить</Button>
+                          <Button key="accept" type="primary" onClick={() => onAcceptResponse(item.id)}>Назначить</Button>,
+                          <Button key="reject" danger onClick={() => onRejectResponse(item.id)}>Отклонить</Button>
                         ]}
                       >
                         <List.Item.Meta
@@ -274,17 +299,35 @@ export function TaskDetailPage() {
                     )}
                   />
                 </Card>
-                <Card title="Ревью (автор)">
-                  <Form layout="vertical" onFinish={onReview}>
-                    <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
-                      <InputNumber min={1} max={5} className="w-full" />
-                    </Form.Item>
-                    <Form.Item label="Комментарий" name="feedback">
-                      <Input.TextArea rows={2} />
-                    </Form.Item>
-                    <Button type="primary" htmlType="submit">Отправить</Button>
-                  </Form>
-                </Card>
+                {executions.length > 0 && (
+                  <Card title="Ответ исполнителя">
+                    <List
+                      dataSource={executions}
+                      renderItem={(execution) => (
+                        <List.Item>
+                          <div>
+                            <div>Ссылка на решение: {execution.solution_url || "-"}</div>
+                            <div>Комментарий: {execution.comment || "-"}</div>
+                            <Tag className="status-tag">{execution.status}</Tag>
+                          </div>
+                        </List.Item>
+                      )}
+                    />
+                  </Card>
+                )}
+                {canReviewClassicSolution && (
+                  <Card title="Ревью (автор)">
+                    <Form layout="vertical" onFinish={onReview}>
+                      <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
+                        <InputNumber min={1} max={5} className="w-full" />
+                      </Form.Item>
+                      <Form.Item label="Комментарий" name="feedback">
+                        <Input.TextArea rows={2} />
+                      </Form.Item>
+                      <Button type="primary" htmlType="submit">Отправить</Button>
+                    </Form>
+                  </Card>
+                )}
               </div>
             )
           }

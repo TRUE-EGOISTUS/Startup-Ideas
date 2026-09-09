@@ -14,6 +14,7 @@ export type Task = {
   assigned_to_id?: number | null;
   current_executor_deadline?: string | null;
   responses?: TaskResponse[];
+  executions?: TaskExecution[];
 };
 
 export type TaskResponse = {
