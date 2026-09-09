@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom"; // добавлен Link
 import { Button, Card, Descriptions, Form, Input, InputNumber, List, Tag, Typography, message, Tabs, Empty } from "antd";
 import { api } from "../lib/api";
 import { Task, TaskExecution, TaskResponse } from "../types";
@@ -26,9 +26,7 @@ export function TaskDetailPage() {
   const pendingResponses = responses.filter((response) => response.status === "pending");
 
   const loadTask = async () => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       const { data } = await api.get<Task>(`/tasks/${taskId}`);
       setTask(data);
@@ -38,9 +36,7 @@ export function TaskDetailPage() {
   };
 
   const loadSolutions = async () => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       const { data } = await api.get<TaskExecution[]>(`/tasks/${taskId}/solutions`);
       setSolutions(data);
@@ -60,9 +56,7 @@ export function TaskDetailPage() {
   }, [isCompany, isOpenMode, taskId]);
 
   const onRespond = async (values: { message: string }) => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.post(`/tasks/${taskId}/responses`, values);
       message.success("Отклик отправлен");
@@ -73,9 +67,7 @@ export function TaskDetailPage() {
   };
 
   const onAcceptResponse = async (responseId: number) => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.put(`/tasks/${taskId}/responses/${responseId}/accept`);
       message.success("Исполнитель назначен");
@@ -86,9 +78,7 @@ export function TaskDetailPage() {
   };
 
   const onRejectResponse = async (responseId: number) => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.put(`/tasks/${taskId}/responses/${responseId}/reject`);
       message.success("Отклик отклонён");
@@ -99,9 +89,7 @@ export function TaskDetailPage() {
   };
 
   const onComplete = async (values: { solution_url?: string; comment?: string }) => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.post(`/tasks/${taskId}/complete`, values);
       message.success("Задача отправлена на ревью");
@@ -112,9 +100,7 @@ export function TaskDetailPage() {
   };
 
   const onReview = async (values: { rating: number; feedback?: string }) => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.post(`/tasks/${taskId}/review`, values);
       message.success("Ревью отправлено");
@@ -125,9 +111,7 @@ export function TaskDetailPage() {
   };
 
   const onSubmitOpenSolution = async (values: { solution_url?: string; comment?: string }) => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.post(`/tasks/${taskId}/open-solution`, values);
       message.success("Решение отправлено");
@@ -139,9 +123,7 @@ export function TaskDetailPage() {
   };
 
   const onAcceptSolution = async (values: { execution_id: number; rating: number; feedback?: string }) => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.put(`/tasks/${taskId}/solutions/${values.execution_id}/accept`, null, {
         params: { rating: values.rating, feedback: values.feedback }
@@ -155,9 +137,7 @@ export function TaskDetailPage() {
   };
 
   const onCloseTask = async () => {
-    if (!taskId) {
-      return;
-    }
+    if (!taskId) return;
     try {
       await api.put(`/tasks/${taskId}/close`);
       message.success("Задача закрыта и удалена");
@@ -175,7 +155,14 @@ export function TaskDetailPage() {
         <Card title="Детали">
           <Descriptions column={1} bordered>
             <Descriptions.Item label="Название">{task.title}</Descriptions.Item>
-            <Descriptions.Item label="Создатель">{task.author_email || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Создатель">
+              <Link to={`/profile/${task.author_id}`}>{task.author_email || "-"}</Link>
+            </Descriptions.Item>
+            <Descriptions.Item label="Исполнитель">
+              {task.assigned_to_id ? (
+                <Link to={`/profile/${task.assigned_to_id}`}>Исполнитель #{task.assigned_to_id}</Link>
+              ) : "-"}
+            </Descriptions.Item>
             <Descriptions.Item label="Описание">{task.description || "-"}</Descriptions.Item>
             <Descriptions.Item label="Статус">
               <Tag className="status-tag" color={task.status === "open" ? "green" : task.status === "closed" ? "red" : "blue"}>
@@ -192,231 +179,199 @@ export function TaskDetailPage() {
       )
     },
     ...(canChat
-      ? [
-          {
-            key: "chat",
-            label: "Чат",
-            children: (
-              <Card>
-                <Button type="primary">
-                  <Link to={`/tasks/${taskId}/chat`}>Открыть чат задачи</Link>
-                </Button>
-              </Card>
-            )
-          }
-        ]
+      ? [{
+          key: "chat",
+          label: "Чат",
+          children: (
+            <Card>
+              <Button type="primary">
+                <Link to={`/tasks/${taskId}/chat`}>Открыть чат задачи</Link>
+              </Button>
+            </Card>
+          )
+        }]
       : []),
     ...(isSpecialist && isClassicMode && (canRespondClassic || canSubmitClassicSolution)
-      ? [
-          {
-            key: "respond",
-            label: canSubmitClassicSolution ? "Сдача решения" : "Отклик",
-            children: (
-              <div className="space-y-6">
-                {canRespondClassic && (
-                  <Card title="Откликнуться">
-                    <Form layout="vertical" onFinish={onRespond}>
-                      <Form.Item label="Сообщение" name="message" rules={[{ required: true }]}>
-                        <Input.TextArea rows={2} />
-                      </Form.Item>
-                      <Button type="primary" htmlType="submit">Отправить</Button>
-                    </Form>
-                  </Card>
-                )}
-                {canSubmitClassicSolution && (
-                  <Card title="Завершить задачу (исполнитель)">
-                    <Form layout="vertical" onFinish={onComplete}>
-                      <Form.Item label="Ссылка на решение" name="solution_url">
-                        <Input />
-                      </Form.Item>
-                      <Form.Item label="Комментарий" name="comment">
-                        <Input.TextArea rows={2} />
-                      </Form.Item>
-                      <Button type="primary" htmlType="submit">Отправить</Button>
-                    </Form>
-                  </Card>
-                )}
-              </div>
-            )
-          }
-        ]
+      ? [{
+          key: "respond",
+          label: canSubmitClassicSolution ? "Сдача решения" : "Отклик",
+          children: (
+            <div className="space-y-6">
+              {canRespondClassic && (
+                <Card title="Откликнуться">
+                  <Form layout="vertical" onFinish={onRespond}>
+                    <Form.Item label="Сообщение" name="message" rules={[{ required: true }]}>
+                      <Input.TextArea rows={2} />
+                    </Form.Item>
+                    <Button type="primary" htmlType="submit">Отправить</Button>
+                  </Form>
+                </Card>
+              )}
+              {canSubmitClassicSolution && (
+                <Card title="Завершить задачу (исполнитель)">
+                  <Form layout="vertical" onFinish={onComplete}>
+                    <Form.Item label="Ссылка на решение" name="solution_url">
+                      <Input />
+                    </Form.Item>
+                    <Form.Item label="Комментарий" name="comment">
+                      <Input.TextArea rows={2} />
+                    </Form.Item>
+                    <Button type="primary" htmlType="submit">Отправить</Button>
+                  </Form>
+                </Card>
+              )}
+            </div>
+          )
+        }]
       : []),
     ...(isSpecialist && isOpenMode
-      ? [
-          {
-            key: "open-solution",
-            label: "Решение",
-            children: (
-              <Card title="Open-режим: отправить решение">
-                <Form layout="vertical" onFinish={onSubmitOpenSolution}>
-                    <Form.Item label="Ссылка на решение" name="solution_url">
-                    <Input />
-                  </Form.Item>
-                  <Form.Item label="Комментарий" name="comment">
-                    <Input.TextArea rows={2} />
-                  </Form.Item>
-                  <Button type="primary" htmlType="submit">Отправить</Button>
-                </Form>
-              </Card>
-            )
-          }
-        ]
+      ? [{
+          key: "open-solution",
+          label: "Решение",
+          children: (
+            <Card title="Open-режим: отправить решение">
+              <Form layout="vertical" onFinish={onSubmitOpenSolution}>
+                <Form.Item label="Ссылка на решение" name="solution_url">
+                  <Input />
+                </Form.Item>
+                <Form.Item label="Комментарий" name="comment">
+                  <Input.TextArea rows={2} />
+                </Form.Item>
+                <Button type="primary" htmlType="submit">Отправить</Button>
+              </Form>
+            </Card>
+          )
+        }]
       : []),
     ...(isCompany && isClassicMode
-      ? [
-          {
-            key: "responses",
-            label: "Отклики",
-            children: (
-              <Card title="Отклики специалистов">
-                <div className="page-toolbar">
-                  <Typography.Text>Откликов: {pendingResponses.length}</Typography.Text>
-                  <Button onClick={loadTask}>Обновить отклики</Button>
-                </div>
-                <List
-                  dataSource={pendingResponses}
-                  locale={{
-                    emptyText: (
-                      <div className="empty-panel">
-                        <Empty description="Пока нет откликов" />
-                      </div>
-                    )
-                  }}
-                  renderItem={(item: TaskResponse) => (
-                    <List.Item
-                      actions={[
-                        <Button key="accept" type="primary" onClick={() => onAcceptResponse(item.id)}>Назначить</Button>,
-                        <Button key="reject" danger onClick={() => onRejectResponse(item.id)}>Отклонить</Button>
-                      ]}
-                    >
-                      <List.Item.Meta
-                        title={item.user_nickname || `User ${item.user_id}`}
-                        description={item.message || "Сообщение не указано"}
-                      />
-                      <Tag className="status-tag">{item.status}</Tag>
-                    </List.Item>
-                  )}
-                />
-              </Card>
-            )
-          }
-        ]
+      ? [{
+          key: "responses",
+          label: "Отклики",
+          children: (
+            <Card title="Отклики специалистов">
+              <div className="page-toolbar">
+                <Typography.Text>Откликов: {pendingResponses.length}</Typography.Text>
+                <Button onClick={loadTask}>Обновить отклики</Button>
+              </div>
+              <List
+                dataSource={pendingResponses}
+                locale={{ emptyText: <div className="empty-panel"><Empty description="Пока нет откликов" /></div> }}
+                renderItem={(item: TaskResponse) => (
+                  <List.Item
+                    actions={[
+                      <Button key="accept" type="primary" onClick={() => onAcceptResponse(item.id)}>Назначить</Button>,
+                      <Button key="reject" danger onClick={() => onRejectResponse(item.id)}>Отклонить</Button>
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={<Link to={`/profile/${item.user_id}`}>{item.user_nickname || `User ${item.user_id}`}</Link>}
+                      description={item.message || "Сообщение не указано"}
+                    />
+                    <Tag className="status-tag">{item.status}</Tag>
+                  </List.Item>
+                )}
+              />
+            </Card>
+          )
+        }]
       : []),
     ...(isCompany && isClassicMode && (executions.length > 0 || canReviewClassicSolution)
-      ? [
-          {
-            key: "execution",
-            label: "Выполнение",
-            children: (
-              <div className="space-y-6">
-                <Card title="Ответ исполнителя">
-                  <List
-                    dataSource={executions}
-                    locale={{
-                      emptyText: (
-                        <div className="empty-panel">
-                          <Empty description="Исполнитель ещё не сдал решение" />
-                        </div>
-                      )
-                    }}
-                    renderItem={(execution) => (
-                      <List.Item>
-                        <div>
-                          <div><strong>Исполнитель:</strong> {execution.user_nickname || `User ${execution.user_id}`}</div>
-                          <div>Ссылка на решение: {execution.solution_url || "-"}</div>
-                          <div>Комментарий: {execution.comment || "-"}</div>
-                          <Tag className="status-tag">{execution.status}</Tag>
-                          {(execution.rating || execution.feedback) && (
-                            <div className="mt-2">
-                              <div>Оценка ревью: {execution.rating ?? "-"}</div>
-                              <div>Комментарий ревью: {execution.feedback || "-"}</div>
-                            </div>
-                          )}
-                        </div>
-                      </List.Item>
-                    )}
-                  />
-                </Card>
-                {canReviewClassicSolution && (
-                  <Card title="Ревью (автор)">
-                    <Form layout="vertical" onFinish={onReview}>
-                      <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
-                        <InputNumber min={1} max={5} className="w-full" />
-                      </Form.Item>
-                      <Form.Item label="Комментарий" name="feedback">
-                        <Input.TextArea rows={2} />
-                      </Form.Item>
-                      <Button type="primary" htmlType="submit">Отправить</Button>
-                    </Form>
-                  </Card>
-                )}
-              </div>
-            )
-          }
-        ]
-      : []),
-    ...(isCompany && isOpenMode
-      ? [
-          {
-            key: "solutions",
-            label: "Решения",
-            children: (
-              <Card title="Решения (автор)">
-                <div className="page-toolbar">
-                  <Typography.Text>Решений: {solutions.length}</Typography.Text>
-                  <Button onClick={loadSolutions}>Обновить</Button>
-                </div>
+      ? [{
+          key: "execution",
+          label: "Выполнение",
+          children: (
+            <div className="space-y-6">
+              <Card title="Ответ исполнителя">
                 <List
-                  dataSource={solutions}
-                  locale={{
-                    emptyText: (
-                      <div className="empty-panel">
-                        <Empty description="Решений пока нет" />
-                      </div>
-                    )
-                  }}
-                  renderItem={(item) => (
+                  dataSource={executions}
+                  locale={{ emptyText: <div className="empty-panel"><Empty description="Исполнитель ещё не сдал решение" /></div> }}
+                  renderItem={(execution) => (
                     <List.Item>
                       <div>
-                        <div>ID: {item.id} | Исполнитель: {item.user_nickname || `User ${item.user_id}`} | Status: {item.status}</div>
-                        <div>URL: {item.solution_url || "-"}</div>
-                        <div>Comment: {item.comment || "-"}</div>
-                        {(item.rating || item.feedback) && (
-                          <div>Ревью: {item.rating ?? "-"} | {item.feedback || "-"}</div>
+                        <div><strong>Исполнитель:</strong> <Link to={`/profile/${execution.user_id}`}>{execution.user_nickname || `User ${execution.user_id}`}</Link></div>
+                        <div>Ссылка на решение: {execution.solution_url || "-"}</div>
+                        <div>Комментарий: {execution.comment || "-"}</div>
+                        <Tag className="status-tag">{execution.status}</Tag>
+                        {(execution.rating || execution.feedback) && (
+                          <div className="mt-2">
+                            <div>Оценка ревью: {execution.rating ?? "-"}</div>
+                            <div>Комментарий ревью: {execution.feedback || "-"}</div>
+                          </div>
                         )}
                       </div>
                     </List.Item>
                   )}
                 />
-                <Form layout="inline" onFinish={onAcceptSolution}>
-                  <Form.Item label="ID решения" name="execution_id" rules={[{ required: true }]}>
-                    <InputNumber min={1} />
-                  </Form.Item>
-                  <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
-                    <InputNumber min={1} max={5} />
-                  </Form.Item>
-                  <Form.Item label="Комментарий" name="feedback">
-                    <Input />
-                  </Form.Item>
-                  <Button type="primary" htmlType="submit">Принять</Button>
-                </Form>
               </Card>
-            )
-          }
-        ]
+              {canReviewClassicSolution && (
+                <Card title="Ревью (автор)">
+                  <Form layout="vertical" onFinish={onReview}>
+                    <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
+                      <InputNumber min={1} max={5} className="w-full" />
+                    </Form.Item>
+                    <Form.Item label="Комментарий" name="feedback">
+                      <Input.TextArea rows={2} />
+                    </Form.Item>
+                    <Button type="primary" htmlType="submit">Отправить</Button>
+                  </Form>
+                </Card>
+              )}
+            </div>
+          )
+        }]
+      : []),
+    ...(isCompany && isOpenMode
+      ? [{
+          key: "solutions",
+          label: "Решения",
+          children: (
+            <Card title="Решения (автор)">
+              <div className="page-toolbar">
+                <Typography.Text>Решений: {solutions.length}</Typography.Text>
+                <Button onClick={loadSolutions}>Обновить</Button>
+              </div>
+              <List
+                dataSource={solutions}
+                locale={{ emptyText: <div className="empty-panel"><Empty description="Решений пока нет" /></div> }}
+                renderItem={(item) => (
+                  <List.Item>
+                    <div>
+                      <div>ID: {item.id} | Исполнитель: <Link to={`/profile/${item.user_id}`}>{item.user_nickname || `User ${item.user_id}`}</Link> | Status: {item.status}</div>
+                      <div>URL: {item.solution_url || "-"}</div>
+                      <div>Comment: {item.comment || "-"}</div>
+                      {(item.rating || item.feedback) && (
+                        <div>Ревью: {item.rating ?? "-"} | {item.feedback || "-"}</div>
+                      )}
+                    </div>
+                  </List.Item>
+                )}
+              />
+              <Form layout="inline" onFinish={onAcceptSolution}>
+                <Form.Item label="ID решения" name="execution_id" rules={[{ required: true }]}>
+                  <InputNumber min={1} />
+                </Form.Item>
+                <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
+                  <InputNumber min={1} max={5} />
+                </Form.Item>
+                <Form.Item label="Комментарий" name="feedback">
+                  <Input />
+                </Form.Item>
+                <Button type="primary" htmlType="submit">Принять</Button>
+              </Form>
+            </Card>
+          )
+        }]
       : []),
     ...(isCompany
-      ? [
-          {
-            key: "danger",
-            label: "Закрыть",
-            children: (
-              <Card title="Закрыть задачу">
-                <Button danger onClick={onCloseTask}>Закрыть</Button>
-              </Card>
-            )
-          }
-        ]
+      ? [{
+          key: "danger",
+          label: "Закрыть",
+          children: (
+            <Card title="Закрыть задачу">
+              <Button danger onClick={onCloseTask}>Закрыть</Button>
+            </Card>
+          )
+        }]
       : [])
   ];
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate, } from "react-router-dom"; // добавлен Link
 import { Button, Card, Descriptions, Form, Input, InputNumber, List, Space, Typography, message, Tabs, Empty } from "antd";
 import { api } from "../lib/api";
 import { Project, ProjectMember } from "../types";
@@ -8,11 +8,10 @@ export function ProjectDetailPage() {
   const { projectId } = useParams();
   const [project, setProject] = useState<Project | null>(null);
   const [members, setMembers] = useState<ProjectMember[]>([]);
-
+  const navigate = useNavigate();
+  
   const loadProject = async () => {
-    if (!projectId) {
-      return;
-    }
+    if (!projectId) return;
     try {
       const { data } = await api.get<Project>(`/ideas/projects/${projectId}`);
       setProject(data);
@@ -22,9 +21,7 @@ export function ProjectDetailPage() {
   };
 
   const loadMembers = async () => {
-    if (!projectId) {
-      return;
-    }
+    if (!projectId) return;
     try {
       const { data } = await api.get<ProjectMember[]>(`/ideas/projects/${projectId}/members`);
       setMembers(data);
@@ -39,9 +36,7 @@ export function ProjectDetailPage() {
   }, [projectId]);
 
   const onInvite = async (values: { user_id: number; role?: string }) => {
-    if (!projectId) {
-      return;
-    }
+    if (!projectId) return;
     try {
       await api.post(`/ideas/projects/${projectId}/invite/${values.user_id}`, null, {
         params: { role: values.role || "member" }
@@ -54,9 +49,7 @@ export function ProjectDetailPage() {
   };
 
   const onRemove = async (values: { user_id: number }) => {
-    if (!projectId) {
-      return;
-    }
+    if (!projectId) return;
     try {
       await api.delete(`/ideas/projects/${projectId}/members/${values.user_id}`);
       message.success("Участник удален");
@@ -67,12 +60,11 @@ export function ProjectDetailPage() {
   };
 
   const onLeave = async () => {
-    if (!projectId) {
-      return;
-    }
+    if (!projectId) return;
     try {
       await api.delete(`/ideas/projects/${projectId}/members/me`);
       message.success("Вы вышли из проекта");
+      navigate("/projects");
     } catch {
       message.error("Не удалось выйти из проекта");
     }
@@ -92,7 +84,9 @@ export function ProjectDetailPage() {
                   <Descriptions.Item label="Название">{project.name}</Descriptions.Item>
                   <Descriptions.Item label="Описание">{project.description || "-"}</Descriptions.Item>
                   <Descriptions.Item label="ID идеи">{project.idea_id ?? "-"}</Descriptions.Item>
-                  <Descriptions.Item label="Создатель">{project.creator_email || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="Создатель">
+                    <Link to={`/profile/${project.created_by}`}>{project.creator_email || "-"}</Link>
+                  </Descriptions.Item>
                 </Descriptions>
               </Card>
             ) : (
@@ -124,18 +118,12 @@ export function ProjectDetailPage() {
                 </div>
                 <List
                   dataSource={members}
-                  locale={{
-                    emptyText: (
-                      <div className="empty-panel">
-                        <Empty description="Пока нет участников" />
-                      </div>
-                    )
-                  }}
+                  locale={{ emptyText: <div className="empty-panel"><Empty description="Пока нет участников" /></div> }}
                   renderItem={(item) => (
                     <List.Item>
                       <div>
-                        <div>ID: {item.user_id}</div>
-                        <div>Role: {item.role || "-"}</div>
+                        <div>Пользователь: <Link to={`/profile/${item.user_id}`}>#{item.user_id}</Link></div>
+                        <div>Роль: {item.role || "-"}</div>
                       </div>
                     </List.Item>
                   )}

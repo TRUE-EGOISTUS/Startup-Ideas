@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.models import User, UserRole
 from app.auth import get_current_user, verify_password, get_password_hash
 from app.schemas.user import (
     UserRead, UserUpdate, ChangePasswordRequest,
     SpecialistProfileRead, CompanyProfileRead, 
-    SpecialistProfileUpdate, CompanyProfileUpdate)
+    SpecialistProfileUpdate, CompanyProfileUpdate,
+    PublicUserRead)
 import os
 import uuid
 
@@ -149,3 +150,17 @@ async def upload_avatar(
     
     db.commit()
     return {"image_url": image_url, "image_type": image_type}
+
+@router.get("/{user_id}", response_model=PublicUserRead)
+def get_user_public(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    user = db.query(User).options(
+        selectinload(User.specialist_profile),
+        selectinload(User.company_profile)
+    ).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
