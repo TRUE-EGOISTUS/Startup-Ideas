@@ -21,6 +21,7 @@ export type TaskResponse = {
   id: number;
   task_id: number;
   user_id: number;
+  user_nickname?: string | null;
   message?: string | null;
   status: string;
   created_at: string;
@@ -30,6 +31,7 @@ export type TaskExecution = {
   id: number;
   task_id: number;
   user_id: number;
+  user_nickname?: string | null;
   solution_url?: string | null;
   comment?: string | null;
   feedback?: string | null;

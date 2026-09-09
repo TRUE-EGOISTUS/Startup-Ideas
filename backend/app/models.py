@@ -101,6 +101,10 @@ class TaskResponseModel(Base):
     task = relationship("Task", back_populates="responses")
     user = relationship("User", back_populates="task_responses")
 
+    @property
+    def user_nickname(self):
+        return self.user.username if self.user else None
+
 class TaskExecution(Base):
     __tablename__ = "task_executions"
     id = Column(Integer, primary_key=True)
@@ -115,6 +119,10 @@ class TaskExecution(Base):
     
     task = relationship("Task", back_populates="executions")
     user = relationship("User", back_populates="task_executions")
+
+    @property
+    def user_nickname(self):
+        return self.user.username if self.user else None
 
 class Message(Base):
     __tablename__ = "messages"

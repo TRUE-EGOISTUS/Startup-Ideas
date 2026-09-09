@@ -61,7 +61,7 @@ def _handle_executor_deadline(task: Task, db: Session) -> bool:
         task.status = "ready_for_next"
         task.assigned_to_id = None
         task.current_executor_deadline = None
-
+        _requeue_responses(task.id, db)
         db.commit()
         return True
     return False
@@ -145,7 +145,10 @@ def get_tasks(
     if skill:
         query = query.filter(Task.required_skills.contains(skill))
     total = query.count()
-    tasks = query.options(selectinload(Task.author), selectinload(Task.responses)).offset(skip).limit(limit).all()
+    tasks = query.options(
+        selectinload(Task.author),
+        selectinload(Task.responses).selectinload(TaskResponseModel.user)
+    ).offset(skip).limit(limit).all()
     response.headers["X-Total-Count"] = str(total)
     return tasks
 
@@ -156,8 +159,8 @@ def get_task(
     current_user: Optional[User] = Depends(get_optional_user),
 ):
     task = db.query(Task).options(
-        selectinload(Task.responses),
-        selectinload(Task.executions)
+        selectinload(Task.responses).selectinload(TaskResponseModel.user),
+        selectinload(Task.executions).selectinload(TaskExecution.user)
     ).filter(
         Task.id == task_id,
         or_(
@@ -297,6 +300,13 @@ def reject_response(
     db.commit()
     return {"message": "Response rejected"}
 
+def _requeue_responses(task_id: int, db: Session) -> None:
+    """Переводит все отклики задачи из статуса queued в pending."""
+    db.query(TaskResponseModel).filter(
+        TaskResponseModel.task_id == task_id,
+        TaskResponseModel.status == "queued"
+    ).update({"status": "pending"}, synchronize_session=False)
+
 @router.post("/{task_id}/complete")
 def complete_task(
     task_id: int,
@@ -362,7 +372,7 @@ def review_task(
     task.status = "ready_for_next"
     task.assigned_to_id = None # Снимаем исполнителя, чтобы задача снова стала доступной для откликов
     task.current_executor_deadline = None # Сбрасываем персональный дедлайн
-    
+    _requeue_responses(task.id, db)
     # Обновляем рейтинг исполнителя (среднее арифметическое)
     specialist = execution.user
     if specialist.role == UserRole.SPECIALIST:
@@ -421,7 +431,7 @@ def cancel_execution(
     task.assigned_to_id = None
     task.current_executor_deadline = None
     task.status = "ready_for_next"
-
+    _requeue_responses(task.id, db)
     db.commit()
     return {"message": "You have been removed from the task, it is now open for new responses"}
 
@@ -486,7 +496,9 @@ def get_task_solutions(
     if current_user.id != task.author_id:
         raise HTTPException(status_code=403, detail="Only the task author can view solutions")
     
-    solutions = db.query(TaskExecution).filter(TaskExecution.task_id == task_id).order_by(TaskExecution.created_at).all()
+    solutions = db.query(TaskExecution).options(selectinload(TaskExecution.user)).filter(
+        TaskExecution.task_id == task_id
+    ).order_by(TaskExecution.created_at).all()
     return solutions
 
 @router.put("/{task_id}/solutions/{execution_id}/accept")

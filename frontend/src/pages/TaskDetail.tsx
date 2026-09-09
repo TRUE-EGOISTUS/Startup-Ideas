@@ -268,53 +268,75 @@ export function TaskDetailPage() {
             key: "responses",
             label: "Отклики",
             children: (
+              <Card title="Отклики специалистов">
+                <div className="page-toolbar">
+                  <Typography.Text>Откликов: {pendingResponses.length}</Typography.Text>
+                  <Button onClick={loadTask}>Обновить отклики</Button>
+                </div>
+                <List
+                  dataSource={pendingResponses}
+                  locale={{
+                    emptyText: (
+                      <div className="empty-panel">
+                        <Empty description="Пока нет откликов" />
+                      </div>
+                    )
+                  }}
+                  renderItem={(item: TaskResponse) => (
+                    <List.Item
+                      actions={[
+                        <Button key="accept" type="primary" onClick={() => onAcceptResponse(item.id)}>Назначить</Button>,
+                        <Button key="reject" danger onClick={() => onRejectResponse(item.id)}>Отклонить</Button>
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={item.user_nickname || `User ${item.user_id}`}
+                        description={item.message || "Сообщение не указано"}
+                      />
+                      <Tag className="status-tag">{item.status}</Tag>
+                    </List.Item>
+                  )}
+                />
+              </Card>
+            )
+          }
+        ]
+      : []),
+    ...(isCompany && isClassicMode && (executions.length > 0 || canReviewClassicSolution)
+      ? [
+          {
+            key: "execution",
+            label: "Выполнение",
+            children: (
               <div className="space-y-6">
-                <Card title="Отклики специалистов">
-                  <div className="page-toolbar">
-                    <Typography.Text>Откликов: {pendingResponses.length}</Typography.Text>
-                    <Button onClick={loadTask}>Обновить отклики</Button>
-                  </div>
+                <Card title="Ответ исполнителя">
                   <List
-                    dataSource={pendingResponses}
+                    dataSource={executions}
                     locale={{
                       emptyText: (
                         <div className="empty-panel">
-                          <Empty description="Пока нет откликов" />
+                          <Empty description="Исполнитель ещё не сдал решение" />
                         </div>
                       )
                     }}
-                    renderItem={(item: TaskResponse) => (
-                      <List.Item
-                        actions={[
-                          <Button key="accept" type="primary" onClick={() => onAcceptResponse(item.id)}>Назначить</Button>,
-                          <Button key="reject" danger onClick={() => onRejectResponse(item.id)}>Отклонить</Button>
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={`User ${item.user_id}`}
-                          description={item.message || "Сообщение не указано"}
-                        />
-                        <Tag className="status-tag">{item.status}</Tag>
+                    renderItem={(execution) => (
+                      <List.Item>
+                        <div>
+                          <div><strong>Исполнитель:</strong> {execution.user_nickname || `User ${execution.user_id}`}</div>
+                          <div>Ссылка на решение: {execution.solution_url || "-"}</div>
+                          <div>Комментарий: {execution.comment || "-"}</div>
+                          <Tag className="status-tag">{execution.status}</Tag>
+                          {(execution.rating || execution.feedback) && (
+                            <div className="mt-2">
+                              <div>Оценка ревью: {execution.rating ?? "-"}</div>
+                              <div>Комментарий ревью: {execution.feedback || "-"}</div>
+                            </div>
+                          )}
+                        </div>
                       </List.Item>
                     )}
                   />
                 </Card>
-                {executions.length > 0 && (
-                  <Card title="Ответ исполнителя">
-                    <List
-                      dataSource={executions}
-                      renderItem={(execution) => (
-                        <List.Item>
-                          <div>
-                            <div>Ссылка на решение: {execution.solution_url || "-"}</div>
-                            <div>Комментарий: {execution.comment || "-"}</div>
-                            <Tag className="status-tag">{execution.status}</Tag>
-                          </div>
-                        </List.Item>
-                      )}
-                    />
-                  </Card>
-                )}
                 {canReviewClassicSolution && (
                   <Card title="Ревью (автор)">
                     <Form layout="vertical" onFinish={onReview}>
@@ -356,9 +378,12 @@ export function TaskDetailPage() {
                   renderItem={(item) => (
                     <List.Item>
                       <div>
-                        <div>ID: {item.id} | User: {item.user_id} | Status: {item.status}</div>
+                        <div>ID: {item.id} | Исполнитель: {item.user_nickname || `User ${item.user_id}`} | Status: {item.status}</div>
                         <div>URL: {item.solution_url || "-"}</div>
                         <div>Comment: {item.comment || "-"}</div>
+                        {(item.rating || item.feedback) && (
+                          <div>Ревью: {item.rating ?? "-"} | {item.feedback || "-"}</div>
+                        )}
                       </div>
                     </List.Item>
                   )}
