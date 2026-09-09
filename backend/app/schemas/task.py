@@ -68,6 +68,7 @@ class TaskResponseOut(BaseModel):
     id: int
     task_id: int
     user_id: int
+    user_nickname: Optional[str] = None
     message: Optional[str]
     status: str
     created_at: datetime
@@ -93,6 +94,7 @@ class TaskExecutionOut(BaseModel):
     id: int
     task_id: int
     user_id: int
+    user_nickname: Optional[str] = None
     solution_url: Optional[str]
     comment: Optional[str]
     feedback: Optional[str]
@@ -119,4 +121,3 @@ class TaskDetailOut(TaskResponseSchema):
 class OpenSolutionRequest(BaseModel):
     solution_url: Optional[str]= None
     comment: Optional[str] = None
-     
