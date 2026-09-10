@@ -1,4 +1,4 @@
-# [Cсылка на брендборд][https://github.com/TRUE-EGOISTUS/Startup-Ideas/blob/week_1/Desktop%20-%201.pdf]
+# [Cсылка на брендборд](https://github.com/TRUE-EGOISTUS/Startup-Ideas/blob/week_1/Desktop%20-%201.pdf)
 
 
 # Практическое занятие №1. 
