@@ -14,10 +14,17 @@ export function IdeaDetailPage() {
   const [section, setSection] = useState<"details" | "update" | "status" | "respond" | "responses" | "danger">("details");
   const [hasProjects, setHasProjects] = useState(false);
   const [updateForm] = Form.useForm();
+  const isAuthor = useMemo(() => {
+    if (!user || !idea) return false;
+    return user.id === idea.author_id;
+  }, [user, idea]);
   const canRespond = useMemo(() => {
     if (!user || !idea) return false;
-    return !hasProjects && user.id !== idea.author_id;
-  }, [hasProjects, user, idea]);
+    // Откликнуться могут только специалисты, которые ещё не состоят
+    // ни в одном проекте, и не являются автором идеи. Компаниям
+    // и автору идеи этот раздел недоступен.
+    return user.role === "specialist" && !isAuthor && !hasProjects;
+  }, [hasProjects, user, idea, isAuthor]);
   const roleOptions = useMemo(() => {
     if (!idea?.roles_needed) return [];
     return idea.roles_needed
@@ -57,6 +64,26 @@ export function IdeaDetailPage() {
       setHasProjects(false);
     }
   }, [ideaId, user?.id]);
+
+  // Отклики видит и загружает только автор идеи (эндпоинт /responses
+  // и так отдаёт 403 всем остальным).
+  useEffect(() => {
+    if (isAuthor) {
+      loadResponses();
+    }
+  }, [ideaId, isAuthor]);
+
+  // Если активная вкладка стала недоступна (например, идея загрузилась
+  // и выяснилось, что пользователь не автор), возвращаемся на "Детали".
+  useEffect(() => {
+    const authorOnlySections: typeof section[] = ["update", "status", "responses", "danger"];
+    if (authorOnlySections.includes(section) && !isAuthor) {
+      setSection("details");
+    }
+    if (section === "respond" && !canRespond) {
+      setSection("details");
+    }
+  }, [isAuthor, canRespond, section]);
 
   useEffect(() => {
     if (!idea) return;
@@ -169,11 +196,11 @@ export function IdeaDetailPage() {
         onChange={(key) => setSection(key as typeof section)}
         items={[
           { key: "details", label: "Детали" },
-          { key: "update", label: "Редактировать" },
-          { key: "status", label: "Статус и роли" },
+          ...(isAuthor ? [{ key: "update", label: "Редактировать" }] : []),
+          ...(isAuthor ? [{ key: "status", label: "Статус и роли" }] : []),
           ...(canRespond ? [{ key: "respond", label: "Откликнуться" }] : []),
-          { key: "responses", label: "Отклики" },
-          { key: "danger", label: "Удаление" }
+          ...(isAuthor ? [{ key: "responses", label: "Отклики" }] : []),
+          ...(isAuthor ? [{ key: "danger", label: "Удаление" }] : [])
         ]}
       />
       {section === "details" && idea && (
@@ -191,11 +218,19 @@ export function IdeaDetailPage() {
             </Descriptions.Item>
             <Descriptions.Item label="Роли">{idea.roles_needed || "-"}</Descriptions.Item>
             <Descriptions.Item label="Теги">{idea.tags || "-"}</Descriptions.Item>
+            {isAuthor && (
+              <Descriptions.Item label="Отклики">
+                {responses.length}{" "}
+                <Button type="link" size="small" onClick={() => setSection("responses")}>
+                  посмотреть отклики
+                </Button>
+              </Descriptions.Item>
+            )}
           </Descriptions>
         </Card>
       )}
 
-      {section === "update" && (
+      {section === "update" && isAuthor && (
         <Card title="Обновить идею">
           <Form layout="vertical" onFinish={onUpdate} form={updateForm}>
             <Form.Item label="Название" name="title"><Input /></Form.Item>
@@ -207,22 +242,25 @@ export function IdeaDetailPage() {
         </Card>
       )}
 
-      {section === "status" && (
+      {section === "status" && isAuthor && (
         <Card title="Статус и роли">
-          <Space direction="vertical" className="w-full">
+          <Space direction="vertical" size="large" className="w-full">
             <Form layout="inline" onFinish={onUpdateStatus}>
               <Form.Item label="Статус" name="status" rules={[{ required: true }]}>
-                <Select options={[
-                  { value: "open", label: "open" },
-                  { value: "in_progress", label: "in_progress" },
-                  { value: "closed", label: "closed" }
-                ]} />
+                <Select
+                  style={{ minWidth: 260 }}
+                  options={[
+                    { value: "open", label: "open" },
+                    { value: "in_progress", label: "in_progress" },
+                    { value: "closed", label: "closed" }
+                  ]}
+                />
               </Form.Item>
               <Button type="primary" htmlType="submit">Обновить</Button>
             </Form>
             <Form layout="inline" onFinish={onUpdateRoles}>
               <Form.Item label="Роли" name="roles_needed" rules={[{ required: true }]}>
-                <Input />
+                <Input style={{ minWidth: 320 }} placeholder="Например: разработчик, дизайнер, маркетолог" />
               </Form.Item>
               <Button type="primary" htmlType="submit">Обновить</Button>
             </Form>
@@ -240,6 +278,7 @@ export function IdeaDetailPage() {
               help={roleOptions.length === 0 ? "Автор не указал роли для откликов" : undefined}
             >
               <Select
+                style={{ minWidth: 260 }}
                 placeholder="Выберите роль"
                 options={roleOptions}
                 disabled={roleOptions.length === 0}
@@ -256,7 +295,7 @@ export function IdeaDetailPage() {
         </Card>
       )}
 
-      {section === "responses" && (
+      {section === "responses" && isAuthor && (
         <Card title="Отклики">
           <div className="page-toolbar">
             <Typography.Text>Всего откликов: {responses.length}</Typography.Text>
@@ -283,7 +322,7 @@ export function IdeaDetailPage() {
         </Card>
       )}
 
-      {section === "danger" && (
+      {section === "danger" && isAuthor && (
         <Card title="Удалить идею">
           <Button danger onClick={onDelete}>Удалить</Button>
         </Card>
