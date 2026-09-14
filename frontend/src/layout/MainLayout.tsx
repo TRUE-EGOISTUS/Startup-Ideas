@@ -43,39 +43,48 @@ export function MainLayout() {
 
   return (
     <Layout className="min-h-screen app-shell">
-      <Header className="app-header flex items-center justify-between">
-        <Space className="app-header-left">
-          <Button
-            className="app-mobile-toggle"
-            icon={<MenuOutlined />}
-            onClick={() => setMobileOpen(true)}
-            type="text"
-          />
-          <Typography.Title level={4} className="!mb-0 app-title">
-            JUNION
-          </Typography.Title>
-        </Space>
-        <Menu
-          mode="horizontal"
-          selectedKeys={[selectedKey]}
-          items={menuItems}
-          className="app-header-menu"
-        />
-        <Space className="app-header-actions">
-          {user ? (
-            <>
-              <Typography.Text>{user.email}</Typography.Text>
-              <Button onClick={handleLogout} danger>
-                Выйти
-              </Button>
-            </>
-          ) : (
-            <Button className="app-login-button" icon={<LoginOutlined />} type="primary">
-              <Link to="/login">Войти</Link>
-            </Button>
-          )}
-        </Space>
-      </Header>
+  <Header className="app-header flex items-center justify-between">
+  <Space className="app-header-left">
+    <Button
+      className="app-mobile-toggle"
+      icon={<MenuOutlined />}
+      onClick={() => setMobileOpen(true)}
+      type="text"
+    />
+    
+    {/* Добавляем логотип */}
+    <Link to="/" className="app-logo-link">
+      <img src="static\uploads\Junion.svg" alt="Junion Logo" className="app-logo-img" />
+    </Link>
+
+    {/* Текст JUNION можно оставить рядом или убрать, если логотип самодостаточный */}
+    <Typography.Title level={4} className="!mb-0 app-title">
+      JUNION
+    </Typography.Title>
+  </Space>
+
+  <Menu
+    mode="horizontal"
+    selectedKeys={[selectedKey]}
+    items={menuItems}
+    className="app-header-menu"
+  />
+  
+  <Space className="app-header-actions">
+    {user ? (
+      <>
+        <Typography.Text>{user.email}</Typography.Text>
+        <Button onClick={handleLogout} danger>
+          Выйти
+        </Button>
+      </>
+    ) : (
+      <Button className="app-login-button" icon={<LoginOutlined />} type="primary">
+        <Link to="/login">Войти</Link>
+      </Button>
+    )}
+  </Space>
+</Header>
       <Drawer
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
