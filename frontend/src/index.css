@@ -196,7 +196,26 @@ a {
   background: var(--app-accent-pressed);
   border-color: var(--app-accent-pressed);
 }
+.app-logo-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  margin-right: 8px; /* Небольшой отступ от логотипа до текста JUNION */
+}
 
+.app-logo-img {
+  height: 40px; /* Подбери высоту под свой хедер (обычно 32-40px) */
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+/* Если на мобильных нужно скрыть текст JUNION и оставить только лого */
+@media (max-width: 768px) {
+  .app-title {
+    display: none; 
+  }
+}
 .app-login-button.ant-btn-primary {
   transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }

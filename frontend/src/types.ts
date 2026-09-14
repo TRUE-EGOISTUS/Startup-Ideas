@@ -89,6 +89,7 @@ export type Message = {
   created_at: string;
   sender_name?: string | null;
 };
+// ... (существующие типы)
 
 export type PublicUser = {
   id: number;
