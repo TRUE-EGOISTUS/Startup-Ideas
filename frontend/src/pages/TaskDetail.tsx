@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom"; // добавлен Link
-import { Button, Card, Descriptions, Form, Input, InputNumber, List, Tag, Typography, message, Tabs, Empty } from "antd";
-import { api } from "../lib/api";
-import { Task, TaskExecution, TaskResponse } from "../types";
+import { Alert, Button, Card, Descriptions, Form, Input, InputNumber, List, Modal, Tag, Typography, message, Tabs, Empty } from "antd";
+import { api, getUserPublic } from "../lib/api";
+import { Task, TaskExecution, TaskResponse, PublicUser } from "../types";
 import { useAuthStore } from "../store/auth";
 
 export function TaskDetailPage() {
@@ -11,19 +11,22 @@ export function TaskDetailPage() {
   const { user } = useAuthStore();
   const [solutions, setSolutions] = useState<TaskExecution[]>([]);
   const [task, setTask] = useState<Task | null>(null);
+  const [assignedExecutor, setAssignedExecutor] = useState<PublicUser | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const isCompany = user?.role === "company";
   const isSpecialist = user?.role === "specialist";
   const isOpenMode = task?.execution_mode === "open";
   const isClassicMode = !task?.execution_mode || task?.execution_mode === "classic";
   const canChat = !!task && !!user && (user.id === task.author_id || user.id === task.assigned_to_id);
   const responses = task?.responses ?? [];
+  const activeResponses = responses.filter((response) => response.status === "pending" || response.status === "queued");
   const executions = task?.executions ?? [];
   const canRespondClassic = isSpecialist && isClassicMode &&
     (task?.status === "open" || task?.status === "ready_for_next");
   const canSubmitClassicSolution = isSpecialist && isClassicMode &&
     task?.assigned_to_id === user?.id && task?.status === "in_progress";
   const canReviewClassicSolution = isCompany && isClassicMode && task?.status === "awaiting_review";
-  const pendingResponses = responses.filter((response) => response.status === "pending");
+  const hasAssignedExecutor = !!task?.assigned_to_id;
 
   const loadTask = async () => {
     if (!taskId) return;
@@ -48,6 +51,16 @@ export function TaskDetailPage() {
   useEffect(() => {
     loadTask();
   }, [taskId]);
+
+  useEffect(() => {
+    if (!task?.assigned_to_id) {
+      setAssignedExecutor(null);
+      return;
+    }
+    getUserPublic(task.assigned_to_id)
+      .then(({ data }) => setAssignedExecutor(data))
+      .catch(() => setAssignedExecutor(null));
+  }, [task?.assigned_to_id]);
 
   useEffect(() => {
     if (isCompany && isOpenMode) {
@@ -104,6 +117,7 @@ export function TaskDetailPage() {
     try {
       await api.post(`/tasks/${taskId}/review`, values);
       message.success("Ревью отправлено");
+      setIsReviewModalOpen(false);
       loadTask();
     } catch {
       message.error("Не удалось отправить ревью");
@@ -160,7 +174,9 @@ export function TaskDetailPage() {
             </Descriptions.Item>
             <Descriptions.Item label="Исполнитель">
               {task.assigned_to_id ? (
-                <Link to={`/profile/${task.assigned_to_id}`}>Исполнитель #{task.assigned_to_id}</Link>
+                <Link to={`/profile/${task.assigned_to_id}`}>
+                  {assignedExecutor?.email || `Исполнитель #${task.assigned_to_id}`}
+                </Link>
               ) : "-"}
             </Descriptions.Item>
             <Descriptions.Item label="Описание">{task.description || "-"}</Descriptions.Item>
@@ -249,25 +265,49 @@ export function TaskDetailPage() {
           label: "Отклики",
           children: (
             <Card title="Отклики специалистов">
-              <div className="page-toolbar">
-                <Typography.Text>Откликов: {pendingResponses.length}</Typography.Text>
+              <div className="page-toolbar mb-4">
+                <Typography.Text>Активных откликов: {activeResponses.length}</Typography.Text>
                 <Button onClick={loadTask}>Обновить отклики</Button>
               </div>
+              {hasAssignedExecutor && (
+                <Alert
+                  className="mb-4"
+                  type="warning"
+                  showIcon
+                  message="У задачи уже есть исполнитель"
+                  description="Принять или отклонить отклики нельзя, пока текущий исполнитель не будет снят с задачи (например, завершит её, откажется или не уложится в срок)."
+                />
+              )}
               <List
-                dataSource={pendingResponses}
+                dataSource={activeResponses}
                 locale={{ emptyText: <div className="empty-panel"><Empty description="Пока нет откликов" /></div> }}
                 renderItem={(item: TaskResponse) => (
                   <List.Item
                     actions={[
-                      <Button key="accept" type="primary" onClick={() => onAcceptResponse(item.id)}>Назначить</Button>,
-                      <Button key="reject" danger onClick={() => onRejectResponse(item.id)}>Отклонить</Button>
+                      <Button
+                        key="accept"
+                        type="primary"
+                        disabled={hasAssignedExecutor}
+                        title={hasAssignedExecutor ? "У задачи уже есть исполнитель" : undefined}
+                        onClick={() => onAcceptResponse(item.id)}
+                      >
+                        Назначить
+                      </Button>,
+                      <Button
+                        key="reject"
+                        danger
+                        disabled={hasAssignedExecutor}
+                        title={hasAssignedExecutor ? "У задачи уже есть исполнитель" : undefined}
+                        onClick={() => onRejectResponse(item.id)}
+                      >
+                        Отклонить
+                      </Button>
                     ]}
                   >
                     <List.Item.Meta
                       title={<Link to={`/profile/${item.user_id}`}>{item.user_nickname || `User ${item.user_id}`}</Link>}
                       description={item.message || "Сообщение не указано"}
                     />
-                    <Tag className="status-tag">{item.status}</Tag>
                   </List.Item>
                 )}
               />
@@ -280,8 +320,15 @@ export function TaskDetailPage() {
           key: "execution",
           label: "Выполнение",
           children: (
-            <div className="space-y-6">
-              <Card title="Ответ исполнителя">
+            <>
+              <Card
+                title="Ответ исполнителя"
+                extra={canReviewClassicSolution && (
+                  <Button type="primary" onClick={() => setIsReviewModalOpen(true)}>
+                    Оставить ревью
+                  </Button>
+                )}
+              >
                 <List
                   dataSource={executions}
                   locale={{ emptyText: <div className="empty-panel"><Empty description="Исполнитель ещё не сдал решение" /></div> }}
@@ -289,9 +336,19 @@ export function TaskDetailPage() {
                     <List.Item>
                       <div>
                         <div><strong>Исполнитель:</strong> <Link to={`/profile/${execution.user_id}`}>{execution.user_nickname || `User ${execution.user_id}`}</Link></div>
-                        <div>Ссылка на решение: {execution.solution_url || "-"}</div>
+                        <div>
+                          Ссылка на решение:{" "}
+                          {execution.solution_url ? (
+                            <a
+                              href={/^https?:\/\//i.test(execution.solution_url) ? execution.solution_url : `https://${execution.solution_url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {execution.solution_url}
+                            </a>
+                          ) : "-"}
+                        </div>
                         <div>Комментарий: {execution.comment || "-"}</div>
-                        <Tag className="status-tag">{execution.status}</Tag>
                         {(execution.rating || execution.feedback) && (
                           <div className="mt-2">
                             <div>Оценка ревью: {execution.rating ?? "-"}</div>
@@ -303,20 +360,24 @@ export function TaskDetailPage() {
                   )}
                 />
               </Card>
-              {canReviewClassicSolution && (
-                <Card title="Ревью (автор)">
-                  <Form layout="vertical" onFinish={onReview}>
-                    <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
-                      <InputNumber min={1} max={5} className="w-full" />
-                    </Form.Item>
-                    <Form.Item label="Комментарий" name="feedback">
-                      <Input.TextArea rows={2} />
-                    </Form.Item>
-                    <Button type="primary" htmlType="submit">Отправить</Button>
-                  </Form>
-                </Card>
-              )}
-            </div>
+              <Modal
+                title="Ревью решения"
+                open={isReviewModalOpen}
+                onCancel={() => setIsReviewModalOpen(false)}
+                footer={null}
+                destroyOnClose
+              >
+                <Form layout="vertical" onFinish={onReview}>
+                  <Form.Item label="Оценка" name="rating" rules={[{ required: true }]}>
+                    <InputNumber min={1} max={5} className="w-full" />
+                  </Form.Item>
+                  <Form.Item label="Комментарий" name="feedback">
+                    <Input.TextArea rows={2} />
+                  </Form.Item>
+                  <Button type="primary" htmlType="submit">Отправить</Button>
+                </Form>
+              </Modal>
+            </>
           )
         }]
       : []),
