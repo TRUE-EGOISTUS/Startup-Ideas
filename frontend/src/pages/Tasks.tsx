@@ -94,7 +94,7 @@ export function TasksPage() {
         title="Список задач"
         extra={
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span>Награда:</span>
+            <span>Сортировка:</span>
             <Button
               type="text"
               size="small"
@@ -124,7 +124,7 @@ export function TasksPage() {
             trigger={["click"]}
           >
             <Button>
-              Сортировка: {sortLabels[sortBy]} <DownOutlined />
+              Фильтр: {sortLabels[sortBy]} <DownOutlined />
             </Button>
           </Dropdown>
           <Input
