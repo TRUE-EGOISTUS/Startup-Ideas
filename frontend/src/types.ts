@@ -50,6 +50,7 @@ export type Idea = {
   tags?: string | null;
   status: string;
   created_at: string;
+  responses_count: number;
 };
 
 export type IdeaResponse = {
