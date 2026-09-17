@@ -27,7 +27,7 @@ def _delete_task_tree(task: Task, db: Session) -> None:
 def _handle_executor_deadline(task: Task, db: Session) -> bool:
     """
     Проверяет и обновляет дедлайн для исполнителя в классической задаче.
-    Возвращает True, если дедлайн истёк и задача переведена в ready_for_next, иначе False.
+    Возвращает True, если дедлайн истёк и задача снова переведена в open, иначе False.
     """
     if (task.execution_mode == "classic" and 
         task.status == "in_progress" and
@@ -58,7 +58,7 @@ def _handle_executor_deadline(task: Task, db: Session) -> bool:
             specialist.specialist_profile.rating = avg_rating
 
         # Сбрасываем задачу
-        task.status = "ready_for_next"
+        task.status = "open"
         task.assigned_to_id = None
         task.current_executor_deadline = None
         _requeue_responses(task.id, db)
@@ -198,12 +198,7 @@ def create_response(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    # Даём разрешение на отклики для классических задач в статусах open и ready_for_next
-    # Для открытых задачи только open
-    allowed_statuses = ["open"]
-    if task.execution_mode == "classic":
-        allowed_statuses.append("ready_for_next")
-    if task.status not in allowed_statuses:
+    if task.status != "open":
         raise HTTPException(status_code=400, detail="Task is not open for responses")
     
     existing = db.query(TaskResponseModel).filter(
@@ -242,9 +237,8 @@ def accept_response(
     _handle_executor_deadline(task, db)
     db.refresh(task)  # Обновляем состояние задачи после возможного изменения статуса
     
-    # Разрешаем принятие исполнителя только если задача в статусе open (для обоих режимов) или ready_for_next (для классического)
-    # и нет назначенного исполнителя
-    if task.status not in ["open", "ready_for_next"] or task.assigned_to_id is not None:
+    # Разрешаем принятие исполнителя только если задача в статусе open и нет назначенного исполнителя
+    if task.status != "open" or task.assigned_to_id is not None:
         raise HTTPException(status_code=400, detail="Task already has an executor or is not open")
     
     response = db.query(TaskResponseModel).filter(
@@ -285,7 +279,7 @@ def reject_response(
         raise HTTPException(status_code=404, detail="Task not found or not owned by you")
     if task.execution_mode != "classic":
         raise HTTPException(status_code=400, detail="This endpoint is only for classic execution mode tasks")
-    if task.status not in ["open", "ready_for_next"] or task.assigned_to_id is not None:
+    if task.status != "open" or task.assigned_to_id is not None:
         raise HTTPException(status_code=400, detail="Task is not open for response decisions")
 
     response = db.query(TaskResponseModel).filter(
@@ -368,8 +362,8 @@ def review_task(
     execution.rating = review_data.rating
     execution.feedback = review_data.feedback
     
-    # В классическом режиме после оценки задача готова принять следующего исполнителя
-    task.status = "ready_for_next"
+    # В классическом режиме после оценки задача снова открыта для откликов
+    task.status = "open"
     task.assigned_to_id = None # Снимаем исполнителя, чтобы задача снова стала доступной для откликов
     task.current_executor_deadline = None # Сбрасываем персональный дедлайн
     _requeue_responses(task.id, db)
@@ -430,7 +424,7 @@ def cancel_execution(
 
     task.assigned_to_id = None
     task.current_executor_deadline = None
-    task.status = "ready_for_next"
+    task.status = "open"
     _requeue_responses(task.id, db)
     db.commit()
     return {"message": "You have been removed from the task, it is now open for new responses"}
