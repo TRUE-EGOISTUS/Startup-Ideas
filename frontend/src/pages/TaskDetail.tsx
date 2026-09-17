@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom"; // добавлен Link
 import { Alert, Button, Card, Descriptions, Form, Input, InputNumber, List, Modal, Tag, Typography, message, Tabs, Empty } from "antd";
+import { DeleteOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
 import { api, getUserPublic } from "../lib/api";
 import { Task, TaskExecution, TaskResponse, PublicUser } from "../types";
 import { useAuthStore } from "../store/auth";
@@ -159,6 +160,54 @@ export function TaskDetailPage() {
     } catch {
       message.error("Не удалось закрыть задачу");
     }
+  };
+
+  const confirmCloseTask = () => {
+    Modal.confirm({
+      title: "Точно закрыть задачу?",
+      icon: <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />,
+      centered: true,
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>Это действие необратимо. При закрытии задачи будут удалены:</p>
+          <div
+            style={{
+              backgroundColor: "#fff",
+              color: "#000",
+              borderRadius: 4,
+              padding: "8px 12px",
+            }}
+          >
+            <ul
+              style={{
+                listStyleType: "disc",
+                listStylePosition: "outside",
+                paddingLeft: 24,
+                margin: 0,
+                color: "#000",
+              }}
+            >
+              <li style={{ color: "#000" }}>
+                <span style={{ color: "#000" }}>сама задача;</span>
+              </li>
+              <li style={{ color: "#000" }}>
+                <span style={{ color: "#000" }}>все отклики специалистов на неё;</span>
+              </li>
+              <li style={{ color: "#000" }}>
+                <span style={{ color: "#000" }}>все сданные решения и история их проверки;</span>
+              </li>
+              <li style={{ color: "#000" }}>
+                <span style={{ color: "#000" }}>переписка по задаче.</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      ),
+      okText: "Да, закрыть задачу",
+      okButtonProps: { danger: true },
+      cancelText: "Отмена",
+      onOk: onCloseTask
+    });
   };
 
   const tabItems = [
@@ -349,6 +398,7 @@ export function TaskDetailPage() {
                           ) : "-"}
                         </div>
                         <div>Комментарий: {execution.comment || "-"}</div>
+                        <Tag className="status-tag">{execution.status}</Tag>
                         {(execution.rating || execution.feedback) && (
                           <div className="mt-2">
                             <div>Оценка ревью: {execution.rating ?? "-"}</div>
@@ -429,7 +479,16 @@ export function TaskDetailPage() {
           label: "Закрыть",
           children: (
             <Card title="Закрыть задачу">
-              <Button danger onClick={onCloseTask}>Закрыть</Button>
+              <Alert
+                className="mb-4"
+                type="warning"
+                showIcon
+                message="Осторожно, необратимое действие"
+                description="Закрытие задачи удаляет её вместе со всеми откликами, решениями и историей выполнения. Восстановить будет невозможно."
+              />
+              <Button danger icon={<DeleteOutlined />} onClick={confirmCloseTask}>
+                Закрыть задачу
+              </Button>
             </Card>
           )
         }]
