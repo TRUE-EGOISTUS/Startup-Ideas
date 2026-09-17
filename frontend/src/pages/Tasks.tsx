@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Dropdown, Input, Table, Typography, message, Tag, Empty } from "antd";
 import type { MenuProps } from "antd";
-import { DownOutlined } from "@ant-design/icons";
+import { DownOutlined, CaretUpOutlined, CaretDownOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Task } from "../types";
@@ -12,7 +12,9 @@ export function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"alphabetical" | "difficulty" | "reward">("alphabetical");
+  const [sortBy, setSortBy] = useState<"alphabetical" | "difficulty">("alphabetical");
+  const [showOnlyMine, setShowOnlyMine] = useState(false);
+  const [rewardSortOrder, setRewardSortOrder] = useState<"ascend" | "descend" | null>(null);
 
   const fetchTasks = async () => {
     setLoading(true);
@@ -33,39 +35,43 @@ export function TasksPage() {
   const visibleTasks = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("ru");
     const difficultyOrder: Record<string, number> = { easy: 0, medium: 1, hard: 2 };
+
+    const ownershipFilteredTasks = showOnlyMine
+      ? tasks.filter((task) => task.author_id === user?.id || task.assigned_to_id === user?.id)
+      : tasks;
+
     const filteredTasks = normalizedSearch
-      ? tasks.filter((task) => {
+      ? ownershipFilteredTasks.filter((task) => {
           const searchableText = [task.title, task.description, task.required_skills]
             .filter(Boolean)
             .join(" ")
             .toLocaleLowerCase("ru");
           return searchableText.includes(normalizedSearch);
         })
-      : tasks;
+      : ownershipFilteredTasks;
 
     return [...filteredTasks].sort((firstTask, secondTask) => {
+      if (rewardSortOrder) {
+        const diff = (firstTask.reward ?? 0) - (secondTask.reward ?? 0);
+        return rewardSortOrder === "ascend" ? diff : -diff;
+      }
+
       if (sortBy === "difficulty") {
         return (difficultyOrder[firstTask.difficulty || ""] ?? 3) - (difficultyOrder[secondTask.difficulty || ""] ?? 3);
       }
 
-      if (sortBy === "reward") {
-        return (firstTask.reward ?? 0) - (secondTask.reward ?? 0);
-      }
-
       return firstTask.title.localeCompare(secondTask.title, "ru", { sensitivity: "base" });
     });
-  }, [search, sortBy, tasks]);
+  }, [search, sortBy, tasks, showOnlyMine, user?.id, rewardSortOrder]);
 
   const sortOptions: MenuProps["items"] = [
     { key: "alphabetical", label: "По алфавитному порядку" },
-    { key: "difficulty", label: "По сложности" },
-    { key: "reward", label: "По награде" }
+    { key: "difficulty", label: "По сложности" }
   ];
 
   const sortLabels = {
     alphabetical: "По алфавитному порядку",
-    difficulty: "По сложности",
-    reward: "По награде"
+    difficulty: "По сложности"
   };
 
   return (
@@ -78,7 +84,30 @@ export function TasksPage() {
           </Button>
         )}
       </div>
-      <Card title="Список задач">
+      <Card
+        title="Список задач"
+        extra={
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span>Сортировка:</span>
+            <Button
+              type="text"
+              size="small"
+              icon={<CaretUpOutlined />}
+              style={{ color: rewardSortOrder === "ascend" ? "#1677ff" : undefined }}
+              onClick={() => setRewardSortOrder(rewardSortOrder === "ascend" ? null : "ascend")}
+              title="По возрастанию"
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<CaretDownOutlined />}
+              style={{ color: rewardSortOrder === "descend" ? "#1677ff" : undefined }}
+              onClick={() => setRewardSortOrder(rewardSortOrder === "descend" ? null : "descend")}
+              title="По убыванию"
+            />
+          </div>
+        }
+      >
         <div className="page-filters mb-4">
           <Dropdown
             menu={{
@@ -89,7 +118,7 @@ export function TasksPage() {
             trigger={["click"]}
           >
             <Button>
-              Сортировка: {sortLabels[sortBy]} <DownOutlined />
+              Фильтр: {sortLabels[sortBy]} <DownOutlined />
             </Button>
           </Dropdown>
           <Input
@@ -97,6 +126,14 @@ export function TasksPage() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
+          {user && (
+            <Button
+              type={showOnlyMine ? "primary" : "default"}
+              onClick={() => setShowOnlyMine((value) => !value)}
+            >
+              Мои задачи
+            </Button>
+          )}
         </div>
         <Table
           rowKey="id"
