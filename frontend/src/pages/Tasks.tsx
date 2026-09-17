@@ -12,7 +12,7 @@ export function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"alphabetical" | "difficulty">("alphabetical");
+  const [sortBy, setSortBy] = useState<"alphabetical" | "difficulty" | "reward">("alphabetical");
   const [showOnlyMine, setShowOnlyMine] = useState(false);
   const [rewardSortOrder, setRewardSortOrder] = useState<"ascend" | "descend" | null>(null);
 
@@ -60,18 +60,24 @@ export function TasksPage() {
         return (difficultyOrder[firstTask.difficulty || ""] ?? 3) - (difficultyOrder[secondTask.difficulty || ""] ?? 3);
       }
 
+      if (sortBy === "reward") {
+        return (firstTask.reward ?? 0) - (secondTask.reward ?? 0);
+      }
+
       return firstTask.title.localeCompare(secondTask.title, "ru", { sensitivity: "base" });
     });
   }, [search, sortBy, tasks, showOnlyMine, user?.id, rewardSortOrder]);
 
   const sortOptions: MenuProps["items"] = [
     { key: "alphabetical", label: "По алфавитному порядку" },
-    { key: "difficulty", label: "По сложности" }
+    { key: "difficulty", label: "По сложности" },
+    { key: "reward", label: "По награде" }
   ];
 
   const sortLabels = {
     alphabetical: "По алфавитному порядку",
-    difficulty: "По сложности"
+    difficulty: "По сложности",
+    reward: "По награде"
   };
 
   return (
@@ -88,7 +94,7 @@ export function TasksPage() {
         title="Список задач"
         extra={
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span>Сортировка:</span>
+            <span>Награда:</span>
             <Button
               type="text"
               size="small"
@@ -118,7 +124,7 @@ export function TasksPage() {
             trigger={["click"]}
           >
             <Button>
-              Фильтр: {sortLabels[sortBy]} <DownOutlined />
+              Сортировка: {sortLabels[sortBy]} <DownOutlined />
             </Button>
           </Dropdown>
           <Input
