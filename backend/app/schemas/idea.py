@@ -25,6 +25,9 @@ class IdeaResponse(BaseModel):
     tags: Optional[str]
     status: str
     created_at: datetime
+    # Только количество откликов, без деталей (кто откликнулся и т.д.) —
+    # доступно всем, в отличие от полного списка в /responses.
+    responses_count: int = 0
 
     @computed_field
     @property

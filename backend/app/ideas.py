@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 from app.database import get_db
@@ -11,6 +12,9 @@ from app.schemas.idea import (
 )
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
+
+def _count_responses(idea_id: int, db: Session) -> int:
+    return db.query(func.count(IdeaResponse.id)).filter(IdeaResponse.idea_id == idea_id).scalar() or 0
 
 def _delete_idea_tree(idea: Idea, db: Session) -> None:
     """Remove an idea, its projects, and every dependent collaboration record."""
@@ -60,9 +64,19 @@ def list_ideas(
     total = query.count()
     ideas = query.offset(skip).limit(limit).all()
     response.headers["X-Total-Count"] = str(total)
+
+    idea_ids = [idea.id for idea in ideas]
+    counts = dict(
+        db.query(IdeaResponse.idea_id, func.count(IdeaResponse.id))
+        .filter(IdeaResponse.idea_id.in_(idea_ids))
+        .group_by(IdeaResponse.idea_id)
+        .all()
+    ) if idea_ids else {}
+
     result = []
     for idea in ideas:
         item = IdeaResponseSchema.model_validate(idea)
+        item.responses_count = counts.get(idea.id, 0)
         result.append(item)
     return result
 
@@ -88,7 +102,9 @@ def get_idea(
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
-    return IdeaResponseSchema.model_validate(idea)
+    item = IdeaResponseSchema.model_validate(idea)
+    item.responses_count = _count_responses(idea_id, db)
+    return item
 
 @router.put("/{idea_id}", response_model=IdeaResponseSchema)
 def update_idea(
@@ -106,7 +122,9 @@ def update_idea(
         setattr(idea, field, value)
     db.commit()
     db.refresh(idea)
-    return idea
+    item = IdeaResponseSchema.model_validate(idea)
+    item.responses_count = _count_responses(idea_id, db)
+    return item
 
 @router.delete("/{idea_id}")
 def delete_idea(
@@ -543,4 +561,3 @@ def withdraw_interest(
     db.delete(response)
     db.commit()
     return {"message": "Response withdrawn"}
-

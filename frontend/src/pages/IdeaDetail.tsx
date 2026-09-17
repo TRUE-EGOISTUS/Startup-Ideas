@@ -11,6 +11,7 @@ export function IdeaDetailPage() {
   const { user } = useAuthStore();
   const [idea, setIdea] = useState<Idea | null>(null);
   const [responses, setResponses] = useState<IdeaResponse[]>([]);
+  const [responseCount, setResponseCount] = useState<number | null>(null);
   const [section, setSection] = useState<"details" | "update" | "status" | "respond" | "responses" | "danger">("details");
   const [hasProjects, setHasProjects] = useState(false);
   const [updateForm] = Form.useForm();
@@ -54,8 +55,19 @@ export function IdeaDetailPage() {
     }
   };
 
+  const loadResponseCount = async () => {
+    if (!ideaId) return;
+    try {
+      const { data } = await api.get<{ count: number }>(`/ideas/${ideaId}/responses/count`);
+      setResponseCount(data.count);
+    } catch {
+      setResponseCount(null);
+    }
+  };
+
   useEffect(() => {
     loadIdea();
+    loadResponseCount();
     if (user) {
       api.get("/ideas/projects/my")
         .then(({ data }) => setHasProjects(Array.isArray(data) && data.length > 0))
@@ -218,14 +230,14 @@ export function IdeaDetailPage() {
             </Descriptions.Item>
             <Descriptions.Item label="Роли">{idea.roles_needed || "-"}</Descriptions.Item>
             <Descriptions.Item label="Теги">{idea.tags || "-"}</Descriptions.Item>
-            {isAuthor && (
-              <Descriptions.Item label="Отклики">
-                {responses.length}{" "}
+            <Descriptions.Item label="Отклики">
+              {idea.responses_count}
+              {isAuthor && (
                 <Button type="link" size="small" onClick={() => setSection("responses")}>
                   посмотреть отклики
                 </Button>
-              </Descriptions.Item>
-            )}
+              )}
+            </Descriptions.Item>
           </Descriptions>
         </Card>
       )}
