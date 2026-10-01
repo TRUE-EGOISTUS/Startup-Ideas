@@ -114,7 +114,7 @@ export function MainLayout() {
         </div>
       </Drawer>
       <Content className="app-content">
-        <div className="app-container">
+        <div className={`app-container ${location.pathname.includes("/chat") ? "app-container--chat" : ""}`}>
           <Outlet />
         </div>
       </Content>
