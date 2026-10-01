@@ -142,6 +142,13 @@ class Message(Base):
     def sender_name(self):
         return self.user.username if self.user else None
 
+    @property
+    def sender_avatar_url(self):
+        if not self.user:
+            return None
+        profile = self.user.specialist_profile or self.user.company_profile
+        return (profile.avatar_url or profile.logo_url) if profile else None
+
     __table_args__ = (
         Index("idx_messages_task_id_created_at", "task_id", "created_at"),
     )
@@ -242,6 +249,13 @@ class ProjectMessage(Base):
     @property
     def sender_name(self):
         return self.user.username if self.user else None
+
+    @property
+    def sender_avatar_url(self):
+        if not self.user:
+            return None
+        profile = self.user.specialist_profile or self.user.company_profile
+        return (profile.avatar_url or profile.logo_url) if profile else None
 
     __table_args__ = (
         Index("idx_project_messages_project_id_created_at", "project_id", "created_at"),
