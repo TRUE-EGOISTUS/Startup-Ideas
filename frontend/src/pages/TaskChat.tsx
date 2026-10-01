@@ -32,8 +32,28 @@ function timeLabel(value: string) {
   return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow" }).format(parseUtcDate(value));
 }
 
+function dateTimeLabel(value?: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Moscow"
+  }).format(parseUtcDate(value));
+}
+
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
+}
+
+function statusLabel(status: string) {
+  return status
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
 
 function messageContent(text: string) {
@@ -42,6 +62,13 @@ function messageContent(text: string) {
       <a key={`${part}-${index}`} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
     ) : part
   );
+}
+
+function resolveAvatarUrl(value?: string | null) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  const baseUrl = api.defaults.baseURL || window.location.origin;
+  return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
 }
 
 export function TaskChatPage() {
@@ -56,6 +83,7 @@ export function TaskChatPage() {
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [websocketConnected, setWebsocketConnected] = useState(false);
   const [showNewMessages, setShowNewMessages] = useState(false);
   const lastMessageIdRef = useRef<number | null>(null);
   const messagesRequestRef = useRef(false);
@@ -63,6 +91,8 @@ export function TaskChatPage() {
   const shouldStickToBottomRef = useRef(true);
   const previousLastIdRef = useRef<number | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
+  const websocketConnectedRef = useRef(false);
+  const websocketReconnectRef = useRef<number | null>(null);
 
   const loadTask = async () => {
     if (!taskId) {
@@ -143,43 +173,70 @@ export function TaskChatPage() {
     void loadTask();
     void loadMessages();
 
-    const websocketBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/^http/, "ws");
-    const socket = new WebSocket(`${websocketBase}/tasks/${taskId}/messages/ws`);
-    websocketRef.current = socket;
-    socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as Message & { type?: string };
-      if (payload.type !== "message") return;
-      setMessagesData((current) => {
-        if (current.some((item) => item.id === payload.id)) return current;
-        const pendingIndex = current.findIndex((item) =>
-          item.deliveryStatus === "sending" && item.user_id === payload.user_id && item.text === payload.text
-        );
-        const serverMessage = { ...payload, localId: String(payload.id), deliveryStatus: undefined } as ChatMessage;
-        if (pendingIndex >= 0) {
-          const next = [...current];
-          next[pendingIndex] = serverMessage;
-          return next;
-        }
-        return [...current, serverMessage];
-      });
-      lastMessageIdRef.current = payload.id;
-    };
-
     const pollMessages = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || websocketConnectedRef.current) return;
       void loadMessages(
         lastMessageIdRef.current === null
           ? { silent: true }
           : { afterId: lastMessageIdRef.current, silent: true }
       );
     };
+
+    const websocketBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/^http/, "ws");
+    let disposed = false;
+    const connectWebSocket = () => {
+      if (disposed || document.visibilityState !== "visible") return;
+      const socket = new WebSocket(`${websocketBase}/tasks/${taskId}/messages/ws`);
+      websocketRef.current = socket;
+      socket.onopen = () => {
+        websocketConnectedRef.current = true;
+        setWebsocketConnected(true);
+      };
+      socket.onmessage = (event) => {
+        const payload = JSON.parse(event.data) as Message & { type?: string };
+        if (payload.type !== "message") return;
+        setMessagesData((current) => {
+          if (current.some((item) => item.id === payload.id)) return current;
+          const pendingIndex = current.findIndex((item) =>
+            item.deliveryStatus === "sending" && item.user_id === payload.user_id && item.text === payload.text
+          );
+          const serverMessage = { ...payload, localId: String(payload.id), deliveryStatus: undefined } as ChatMessage;
+          if (pendingIndex >= 0) {
+            const next = [...current];
+            next[pendingIndex] = serverMessage;
+            return next;
+          }
+          return [...current, serverMessage];
+        });
+        lastMessageIdRef.current = payload.id;
+      };
+      socket.onclose = () => {
+        websocketConnectedRef.current = false;
+        setWebsocketConnected(false);
+        if (!disposed && document.visibilityState === "visible") {
+          websocketReconnectRef.current = window.setTimeout(connectWebSocket, 3000);
+        }
+      };
+    };
+
+    connectWebSocket();
     const pollingId = window.setInterval(pollMessages, 4000);
-    document.addEventListener("visibilitychange", pollMessages);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (!websocketConnectedRef.current) connectWebSocket();
+        pollMessages();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      disposed = true;
       window.clearInterval(pollingId);
-      document.removeEventListener("visibilitychange", pollMessages);
-      socket.close();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (websocketReconnectRef.current !== null) window.clearTimeout(websocketReconnectRef.current);
+      websocketConnectedRef.current = false;
+      setWebsocketConnected(false);
+      websocketRef.current?.close();
       websocketRef.current = null;
     };
   }, [taskId]);
@@ -245,7 +302,7 @@ export function TaskChatPage() {
     setText("");
     setSending(true);
     try {
-      if (websocketRef.current?.readyState === WebSocket.OPEN) {
+      if (websocketConnected && websocketRef.current?.readyState === WebSocket.OPEN) {
         websocketRef.current.send(JSON.stringify({ text: messageText, client_id: localId }));
       } else {
         const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText });
@@ -289,10 +346,10 @@ export function TaskChatPage() {
         <Typography.Title level={2} className="page-title">
           Чат по задаче №{task.display_id} - {task.title}
         </Typography.Title>
-        <Card className="task-chat-card" title={<span>Диалог</span>} extra={<Tag color={task.status === "open" ? "green" : "blue"}>{task.status}</Tag>}>
+        <Card className="task-chat-card" title={<span>Диалог</span>} extra={<Tag color={task.status === "open" ? "green" : "blue"}>{statusLabel(task.status)}</Tag>}>
         <div className="task-chat-context">
           <span>Награда: {task.reward ?? "-"}</span>
-          <span>Дедлайн: {task.current_executor_deadline || task.deadline || "-"}</span>
+          <span>Дедлайн: {dateTimeLabel(task.current_executor_deadline || task.deadline)}</span>
           <span>
             Собеседник: {user.id === task.author_id ? (
               assignedExecutor ? <Link to={`/profile/${assignedExecutor.id}`}>{assignedExecutor.email}</Link> : "-"
@@ -321,14 +378,22 @@ export function TaskChatPage() {
           const previous = messagesData[index - 1];
           const mine = item.user_id === user.id;
           const grouped = !!previous && previous.user_id === item.user_id && dateKey(previous.created_at) === dateKey(item.created_at);
-          const author = mine ? "Вы" : item.sender_name || `User ${item.user_id}`;
+          const author = mine ? (user.username || user.email || "Пользователь") : item.sender_name || `User ${item.user_id}`;
           return (
             <div key={item.localId}>
               {(!previous || dateKey(previous.created_at) !== dateKey(item.created_at)) && <div className="task-chat-day">{dayLabel(item.created_at)}</div>}
               <div className={`task-chat-row ${mine ? "task-chat-row--mine" : ""}`}>
-                {grouped ? <div className="task-chat-avatar-spacer" /> : <div className="task-chat-avatar" title={author}>{initials(author)}</div>}
+                {grouped ? <div className="task-chat-avatar-spacer" /> : (
+                  <Link to={`/profile/${item.user_id}`} className="task-chat-avatar-link" title={`Открыть профиль: ${author}`}>
+                    <div className="task-chat-avatar">
+                      {resolveAvatarUrl(item.sender_avatar_url) ? (
+                        <img src={resolveAvatarUrl(item.sender_avatar_url) || ""} alt={author} />
+                      ) : initials(author)}
+                    </div>
+                  </Link>
+                )}
                 <div className="task-chat-group">
-                  {!grouped && <div className="task-chat-author">{author}</div>}
+                  {!grouped && !mine && <div className="task-chat-author">{author}</div>}
                   <div className={`task-chat-bubble ${item.deliveryStatus === "sending" ? "task-chat-bubble--sending" : ""} ${item.deliveryStatus === "error" ? "task-chat-bubble--error" : ""}`}>
                     <div className="task-chat-text">{messageContent(item.text)}</div>
                     <div className="task-chat-meta">

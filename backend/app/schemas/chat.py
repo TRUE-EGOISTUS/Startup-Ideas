@@ -13,6 +13,7 @@ class MessageOut(BaseModel):
     text: str
     created_at: datetime   # UTC
     sender_name: Optional[str] = None
+    sender_avatar_url: Optional[str] = None
 
     @computed_field
     @property
@@ -33,6 +34,7 @@ class ProjectMessageOut(BaseModel):
     text: str
     created_at: datetime
     sender_name: Optional[str] = None
+    sender_avatar_url: Optional[str] = None
 
     @computed_field
     @property

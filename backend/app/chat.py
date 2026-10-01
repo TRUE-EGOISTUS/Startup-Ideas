@@ -74,6 +74,7 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                     "text": chat_message.text,
                     "created_at": chat_message.created_at.isoformat(),
                     "sender_name": chat_message.sender_name,
+                    "sender_avatar_url": chat_message.sender_avatar_url,
                 })
         except WebSocketDisconnect:
             pass
@@ -125,7 +126,10 @@ def get_messages(
     if after_id is not None and before_id is not None:
         raise HTTPException(status_code=400, detail="Use either after_id or before_id")
 
-    query = db.query(Message).options(joinedload(Message.user)).filter(Message.task_id == task_id)
+    query = db.query(Message).options(
+        joinedload(Message.user).joinedload(User.specialist_profile),
+        joinedload(Message.user).joinedload(User.company_profile),
+    ).filter(Message.task_id == task_id)
     if after_id is not None:
         messages = query.filter(Message.id > after_id).order_by(Message.id.asc()).limit(limit).all()
     elif before_id is not None:
@@ -189,7 +193,10 @@ def get_project_messages(
     if after_id is not None and before_id is not None:
         raise HTTPException(status_code=400, detail="Use either after_id or before_id")
 
-    query = db.query(ProjectMessage).options(joinedload(ProjectMessage.user)).filter(ProjectMessage.project_id == project_id)
+    query = db.query(ProjectMessage).options(
+        joinedload(ProjectMessage.user).joinedload(User.specialist_profile),
+        joinedload(ProjectMessage.user).joinedload(User.company_profile),
+    ).filter(ProjectMessage.project_id == project_id)
     if after_id is not None:
         messages = query.filter(ProjectMessage.id > after_id).order_by(ProjectMessage.id.asc()).limit(limit).all()
     elif before_id is not None:

@@ -92,6 +92,7 @@ export type Message = {
   text: string;
   created_at: string;
   sender_name?: string | null;
+  sender_avatar_url?: string | null;
 };
 // ... (существующие типы)
 
