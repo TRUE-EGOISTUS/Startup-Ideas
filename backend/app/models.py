@@ -137,6 +137,11 @@ class Message(Base):
 
     task = relationship("Task", back_populates="messages")
     user = relationship("User", back_populates="messages")
+
+    @property
+    def sender_name(self):
+        return self.user.username if self.user else None
+
     __table_args__ = (
         Index("idx_messages_task_id_created_at", "task_id", "created_at"),
     )
@@ -233,6 +238,10 @@ class ProjectMessage(Base):
 
     project = relationship("Project", back_populates="messages")
     user = relationship("User", back_populates="project_messages")
+
+    @property
+    def sender_name(self):
+        return self.user.username if self.user else None
 
     __table_args__ = (
         Index("idx_project_messages_project_id_created_at", "project_id", "created_at"),

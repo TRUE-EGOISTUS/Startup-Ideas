@@ -18,7 +18,9 @@ export function TaskDetailPage() {
   const isSpecialist = user?.role === "specialist";
   const isOpenMode = task?.execution_mode === "open";
   const isClassicMode = !task?.execution_mode || task?.execution_mode === "classic";
-  const canChat = !!task && !!user && (user.id === task.author_id || user.id === task.assigned_to_id);
+  const canChat = !!task && !!user &&
+    (task.execution_mode === "open" || !!task.assigned_to_id) &&
+    (user.id === task.author_id || user.id === task.assigned_to_id);
   const responses = task?.responses ?? [];
   const activeResponses = responses.filter((response) => response.status === "pending" || response.status === "queued");
   const executions = task?.executions ?? [];
