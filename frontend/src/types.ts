@@ -1,5 +1,6 @@
 export type Task = {
-  id: number;
+  id: string;
+  display_id: number;
   title: string;
   description?: string | null;
   status: string;
@@ -19,7 +20,7 @@ export type Task = {
 
 export type TaskResponse = {
   id: number;
-  task_id: number;
+  task_id: string;
   user_id: number;
   user_nickname?: string | null;
   message?: string | null;
@@ -29,7 +30,7 @@ export type TaskResponse = {
 
 export type TaskExecution = {
   id: number;
-  task_id: number;
+  task_id: string;
   user_id: number;
   user_nickname?: string | null;
   solution_url?: string | null;
@@ -41,7 +42,8 @@ export type TaskExecution = {
 };
 
 export type Idea = {
-  id: number;
+  id: string;
+  display_id: number;
   title: string;
   short_description: string;
   author_id: number;
@@ -55,7 +57,7 @@ export type Idea = {
 
 export type IdeaResponse = {
   id: number;
-  idea_id: number;
+  idea_id: string;
   user_id: number;
   role: string;
   message?: string | null;
@@ -64,10 +66,11 @@ export type IdeaResponse = {
 };
 
 export type Project = {
-  id: number;
+  id: string;
+  display_id: number;
   name: string;
   description?: string | null;
-  idea_id?: number | null;
+  idea_id?: string | null;
   created_by: number;
   creator_email?: string | null;
   created_at: string;
@@ -75,7 +78,7 @@ export type Project = {
 
 export type ProjectMember = {
   id: number;
-  project_id: number;
+  project_id: string;
   user_id: number;
   role?: string | null;
   joined_at: string;
@@ -83,8 +86,8 @@ export type ProjectMember = {
 
 export type Message = {
   id: number;
-  task_id?: number;
-  project_id?: number;
+  task_id?: string;
+  project_id?: string;
   user_id: number;
   text: string;
   created_at: string;

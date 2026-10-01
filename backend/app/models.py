@@ -1,7 +1,9 @@
 from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
+from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime, timezone
 from sqlalchemy import Enum as SQLEnum
 import enum
+import uuid
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -37,7 +39,8 @@ class User(Base):
 class Task(Base):
     __tablename__ = "tasks"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    display_id = Column(Integer, nullable=False, unique=True, index=True)
     title = Column(String(200), nullable=False)
     description = Column(Text)
     status = Column(String(20), default="open", index=True)
@@ -92,7 +95,7 @@ class CompanyProfile(Base):
 class TaskResponseModel(Base):
     __tablename__ = "task_responses"
     id = Column(Integer, primary_key=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text)
     status = Column(String(20), default="pending")
@@ -108,7 +111,7 @@ class TaskResponseModel(Base):
 class TaskExecution(Base):
     __tablename__ = "task_executions"
     id = Column(Integer, primary_key=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     solution_url = Column(String(500), nullable=True)
     comment = Column(Text, nullable=True)
@@ -127,7 +130,7 @@ class TaskExecution(Base):
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -140,7 +143,8 @@ class Message(Base):
 class Idea(Base):
     __tablename__ = "ideas"
     
-    id = Column(Integer, primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    display_id = Column(Integer, nullable=False, unique=True, index=True)
     title = Column(String(200), nullable=False)
     short_description = Column(Text, nullable=False)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -161,7 +165,7 @@ class IdeaResponse(Base):
     __tablename__ = "idea_responses"
 
     id = Column(Integer, primary_key=True)
-    idea_id = Column(Integer, ForeignKey("ideas.id"), nullable=False)
+    idea_id = Column(UUID(as_uuid=True), ForeignKey("ideas.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=True)
     role = Column(String(100), nullable=False) # роль, на которую претендует откликнувшийся (например, "frontend developer", "designer", "project manager")
@@ -174,10 +178,11 @@ class IdeaResponse(Base):
 class Project(Base):
     __tablename__ = "projects"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    display_id = Column(Integer, nullable=False, unique=True, index=True)
     name = Column(String(200), nullable=False )
     description = Column(Text, nullable=True)
-    idea_id = Column(Integer, ForeignKey("ideas.id"), nullable=True)
+    idea_id = Column(UUID(as_uuid=True), ForeignKey("ideas.id"), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -195,7 +200,7 @@ class ProjectMember(Base):
     __tablename__ = "project_members"
 
     id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role = Column(String(100), nullable=True)
     joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -207,7 +212,7 @@ class ProjectInvite(Base):
     __tablename__ = "project_invites"
 
     id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     invited_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     role = Column(String(100), nullable=True)
@@ -221,7 +226,7 @@ class ProjectInvite(Base):
 class ProjectMessage(Base):
     __tablename__ = "project_messages"
     id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

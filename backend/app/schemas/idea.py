@@ -1,6 +1,7 @@
 from pydantic import BaseModel, computed_field
 from typing import Optional, List
 from datetime import datetime, timedelta
+from uuid import UUID
 
 class IdeaCreate(BaseModel):
     title: str
@@ -16,7 +17,8 @@ class IdeaUpdate(BaseModel):
     status: Optional[str] = None
 
 class IdeaResponse(BaseModel):
-    id: int
+    id: UUID
+    display_id: int
     title: str
     short_description: str
     author_id: int
@@ -44,7 +46,7 @@ class IdeaResponseCreate(BaseModel):
 
 class IdeaResponseOut(BaseModel):
     id: int
-    idea_id: int
+    idea_id: UUID
     user_id: int
     role: str
     message: Optional[str]
@@ -63,13 +65,14 @@ class IdeaResponseOut(BaseModel):
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    idea_id: Optional[int] = None
+    idea_id: Optional[UUID] = None
 
 class ProjectOut(BaseModel):
-    id: int
+    id: UUID
+    display_id: int
     name: str
     description: Optional[str]
-    idea_id: Optional[int]
+    idea_id: Optional[UUID]
     created_by: int
     creator_email: Optional[str] = None
     created_at: datetime
@@ -85,7 +88,7 @@ class ProjectOut(BaseModel):
 
 class ProjectMemberOut(BaseModel):
     id: int
-    project_id: int
+    project_id: UUID
     user_id: int
     role: Optional[str]
     joined_at: datetime
@@ -100,13 +103,13 @@ class ProjectMemberOut(BaseModel):
         from_attributes = True
 
 class ProjectInviteCreate(BaseModel):
-    project_id: int
+    project_id: UUID
     user_id: int
     role: Optional[str] = None
 
 class ProjectInviteOut(BaseModel):
     id: int
-    project_id: int
+    project_id: UUID
     user_id: int
     role: Optional[str]
     status: str

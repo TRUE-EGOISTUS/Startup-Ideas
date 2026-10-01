@@ -72,7 +72,7 @@ export function ProjectDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Typography.Title level={2} className="page-title">Проект #{projectId}</Typography.Title>
+      <Typography.Title level={2} className="page-title">{project?.name || "Проект"}</Typography.Title>
       <Tabs
         items={[
           {

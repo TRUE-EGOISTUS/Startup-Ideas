@@ -103,7 +103,7 @@ export function TasksCreatePage() {
           loading={loading}
           dataSource={tasks}
           columns={[
-            { title: "ID", dataIndex: "id", width: 80 },
+            { title: "ID", dataIndex: "display_id", width: 80 },
             { title: "Заголовок", dataIndex: "title" },
             { title: "Статус", dataIndex: "status" },
             { title: "Режим", dataIndex: "execution_mode" }

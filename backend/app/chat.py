@@ -1,3 +1,4 @@
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -11,7 +12,7 @@ project_router = APIRouter(prefix="/projects", tags=["project-chat"])
 
 @router.post("/", response_model=MessageOut)
 def send_message(
-    task_id: int,
+    task_id: UUID,
     message_data: MessageCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -37,7 +38,7 @@ def send_message(
 
 @router.get("/", response_model=list[MessageOut])
 def get_messages(
-    task_id: int,
+    task_id: UUID,
     since: int = Query(0, description="Unix timestamp in seconds"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -70,7 +71,7 @@ def get_messages(
 
 @project_router.post("/{project_id}/messages", response_model=ProjectMessageOut)
 def send_project_message(
-    project_id: int,
+    project_id: UUID,
     message_data: ProjectMessageCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -101,7 +102,7 @@ def send_project_message(
 
 @project_router.get("/{project_id}/messages", response_model=list[ProjectMessageOut])
 def get_project_messages(
-    project_id: int,
+    project_id: UUID,
     since: int = Query(0, description="Unix timestamp in seconds"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
