@@ -153,7 +153,7 @@ export function TasksPage() {
             )
           }}
           columns={[
-            { title: "ID", dataIndex: "id", width: 80 },
+            { title: "ID", dataIndex: "display_id", width: 80 },
             {
               title: "Заголовок",
               dataIndex: "title",

@@ -1,3 +1,4 @@
+from uuid import UUID
 from pydantic import BaseModel, computed_field
 from datetime import datetime, timedelta
 from typing import Optional
@@ -7,7 +8,7 @@ class MessageCreate(BaseModel):
 
 class MessageOut(BaseModel):
     id: int
-    task_id: int
+    task_id: UUID
     user_id: int
     text: str
     created_at: datetime   # UTC
@@ -27,7 +28,7 @@ class ProjectMessageCreate(BaseModel):
 
 class ProjectMessageOut(BaseModel):
     id: int
-    project_id: int
+    project_id: UUID
     user_id: int
     text: str
     created_at: datetime

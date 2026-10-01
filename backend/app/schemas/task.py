@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, computed_field
 from typing import Optional
 from datetime import datetime, timedelta
+from uuid import UUID
 
 class TaskCreate(BaseModel):
     title: str
@@ -18,7 +19,8 @@ class TaskCreate(BaseModel):
     executor_deadline_minutes: Optional[int] = Field(None, gt=0, description="Срок выполнения для исполнителя в минутах (только для classic задач)")
 
 class TaskResponseSchema(BaseModel):
-    id: int
+    id: UUID
+    display_id: int
     title: str
     description: Optional[str]
     status: str
@@ -66,7 +68,7 @@ class TaskResponseCreate(BaseModel):
 
 class TaskResponseOut(BaseModel):
     id: int
-    task_id: int
+    task_id: UUID
     user_id: int
     user_nickname: Optional[str] = None
     message: Optional[str]
@@ -92,7 +94,7 @@ class TaskReviewRequest(BaseModel):
 
 class TaskExecutionOut(BaseModel):
     id: int
-    task_id: int
+    task_id: UUID
     user_id: int
     user_nickname: Optional[str] = None
     solution_url: Optional[str]

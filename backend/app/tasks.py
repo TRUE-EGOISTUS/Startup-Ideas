@@ -16,6 +16,14 @@ from app.schemas.task import (
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 from datetime import datetime, timezone, timedelta
+from uuid import UUID
+from sqlalchemy import func
+
+def _refresh_task_display_ids(db: Session) -> None:
+    """Keep the visible task numbers contiguous in creation order."""
+    tasks = db.query(Task).order_by(Task.created_at.asc(), Task.id.asc()).all()
+    for display_id, task in enumerate(tasks, start=1):
+        task.display_id = display_id
 
 def _delete_task_tree(task: Task, db: Session) -> None:
     """Remove a closed task and all records that depend on it."""
@@ -99,6 +107,7 @@ def create_task(
     difficulty=task_data.difficulty,
     executor_deadline_minutes=task_data.executor_deadline_minutes if task_data.execution_mode == "classic" else None
 )
+    task.display_id = (db.query(func.max(Task.display_id)).scalar() or 0) + 1
     db.add(task)
     db.commit()
     db.refresh(task)
@@ -145,6 +154,8 @@ def get_tasks(
     if skill:
         query = query.filter(Task.required_skills.contains(skill))
     total = query.count()
+    _refresh_task_display_ids(db)
+    db.flush()
     tasks = query.options(
         selectinload(Task.author),
         selectinload(Task.responses).selectinload(TaskResponseModel.user)
@@ -154,7 +165,7 @@ def get_tasks(
 
 @router.get("/{task_id}", response_model=TaskDetailOut)
 def get_task(
-    task_id: int,
+    task_id: UUID,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
@@ -186,7 +197,7 @@ def get_task(
 
 @router.post("/{task_id}/responses", response_model=TaskResponseOut)
 def create_response(
-    task_id: int,
+    task_id: UUID,
     response_data: TaskResponseCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -220,7 +231,7 @@ def create_response(
 
 @router.put("/{task_id}/responses/{response_id}/accept")
 def accept_response(
-    task_id: int,
+    task_id: UUID,
     response_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -269,7 +280,7 @@ def accept_response(
 
 @router.put("/{task_id}/responses/{response_id}/reject")
 def reject_response(
-    task_id: int,
+    task_id: UUID,
     response_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -294,7 +305,7 @@ def reject_response(
     db.commit()
     return {"message": "Response rejected"}
 
-def _requeue_responses(task_id: int, db: Session) -> None:
+def _requeue_responses(task_id: UUID, db: Session) -> None:
     """Переводит все отклики задачи из статуса queued в pending."""
     db.query(TaskResponseModel).filter(
         TaskResponseModel.task_id == task_id,
@@ -303,7 +314,7 @@ def _requeue_responses(task_id: int, db: Session) -> None:
 
 @router.post("/{task_id}/complete")
 def complete_task(
-    task_id: int,
+    task_id: UUID,
     complete_data: TaskCompleteRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -336,7 +347,7 @@ def complete_task(
 
 @router.post("/{task_id}/review")
 def review_task(
-    task_id: int,
+    task_id: UUID,
     review_data: TaskReviewRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -384,7 +395,7 @@ def review_task(
 
 @router.delete("/{task_id}/execution")
 def cancel_execution(
-    task_id: int,
+    task_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -431,7 +442,7 @@ def cancel_execution(
 
 @router.post("/{task_id}/open-solution", response_model=TaskExecutionOut)
 def submit_open_solution(
-    task_id: int,
+    task_id: UUID,
     solution_data: OpenSolutionRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -480,7 +491,7 @@ def submit_open_solution(
 
 @router.get("/{task_id}/solutions", response_model=list[TaskExecutionOut])
 def get_task_solutions(
-    task_id: int,
+    task_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -497,7 +508,7 @@ def get_task_solutions(
 
 @router.put("/{task_id}/solutions/{execution_id}/accept")
 def accept_solution(
-    task_id: int,
+    task_id: UUID,
     execution_id: int,
     rating: int,
     feedback: Optional[str] = None,
@@ -565,7 +576,7 @@ def accept_solution(
 
 @router.put("/{task_id}/solutions/{execution_id}/reject")
 def reject_solution(
-    task_id: int,
+    task_id: UUID,
     execution_id: int,
     feedback: Optional[str] = None,
     db: Session = Depends(get_db),
@@ -602,11 +613,13 @@ def reject_solution(
         _delete_task_tree(task, db)
 
     db.commit()
+    _refresh_task_display_ids(db)
+    db.commit()
     return {"message": "Solution rejected", "task_status": task.status}
 
 @router.post("/{task_id}/solutions/reject-all")
 def reject_all_solutions(
-    task_id: int,
+    task_id: UUID,
     close_task: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -637,6 +650,8 @@ def reject_all_solutions(
     if close_task:
         _delete_task_tree(task, db)
         db.commit()
+        _refresh_task_display_ids(db)
+        db.commit()
         return {
             "message": f"Rejected {len(pending_solutions)} solution(s); task deleted",
             "task_status": "closed"
@@ -650,7 +665,7 @@ def reject_all_solutions(
 
 @router.put("/{task_id}/close")
 def close_task(
-    task_id: int,
+    task_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -674,5 +689,7 @@ def close_task(
         ).update({"status": "rejected"}, synchronize_session=False)
     
     _delete_task_tree(task, db)
+    db.commit()
+    _refresh_task_display_ids(db)
     db.commit()
     return {"message": "Task closed and deleted"}

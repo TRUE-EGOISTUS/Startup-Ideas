@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
+from uuid import UUID
 from app.database import get_db
 from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, ProjectInvite, ProjectMessage
 from app.auth import get_current_user, get_optional_user
@@ -13,7 +14,15 @@ from app.schemas.idea import (
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
-def _count_responses(idea_id: int, db: Session) -> int:
+def _refresh_idea_display_ids(db: Session) -> None:
+    for display_id, idea in enumerate(db.query(Idea).order_by(Idea.created_at.asc(), Idea.id.asc()).all(), start=1):
+        idea.display_id = display_id
+
+def _refresh_project_display_ids(db: Session) -> None:
+    for display_id, project in enumerate(db.query(Project).order_by(Project.created_at.asc(), Project.id.asc()).all(), start=1):
+        project.display_id = display_id
+
+def _count_responses(idea_id: UUID, db: Session) -> int:
     return db.query(func.count(IdeaResponse.id)).filter(IdeaResponse.idea_id == idea_id).scalar() or 0
 
 def _delete_idea_tree(idea: Idea, db: Session) -> None:
@@ -41,7 +50,10 @@ def create_idea(
         roles_needed=idea_data.roles_needed,
         tags=idea_data.tags
     )
+    idea.display_id = (db.query(func.max(Idea.display_id)).scalar() or 0) + 1
     db.add(idea)
+    db.commit()
+    _refresh_idea_display_ids(db)
     db.commit()
     db.refresh(idea)
     return idea
@@ -95,7 +107,7 @@ def get_my_idea_response(
 
 @router.get("/{idea_id}", response_model=IdeaResponseSchema)
 def get_idea(
-    idea_id: int,
+    idea_id: UUID,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user)
 ):
@@ -108,7 +120,7 @@ def get_idea(
 
 @router.put("/{idea_id}", response_model=IdeaResponseSchema)
 def update_idea(
-    idea_id: int,
+    idea_id: UUID,
     idea_data: IdeaUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -128,7 +140,7 @@ def update_idea(
 
 @router.delete("/{idea_id}")
 def delete_idea(
-    idea_id: int,
+    idea_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -139,11 +151,14 @@ def delete_idea(
         raise HTTPException(status_code=403, detail="Not the author")
     _delete_idea_tree(idea, db)
     db.commit()
+    _refresh_idea_display_ids(db)
+    _refresh_project_display_ids(db)
+    db.commit()
     return {"message": "Idea and related projects deleted"}
 
 @router.put("/{idea_id}/status")
 def update_idea_status(
-    idea_id: int,
+    idea_id: UUID,
     status: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -162,6 +177,9 @@ def update_idea_status(
     if status == "closed":
         _delete_idea_tree(idea, db)
         db.commit()
+        _refresh_idea_display_ids(db)
+        _refresh_project_display_ids(db)
+        db.commit()
         return {"message": "Idea closed and deleted"}
 
     idea.status = status
@@ -170,7 +188,7 @@ def update_idea_status(
 
 @router.put("/{idea_id}/roles")
 def update_idea_roles(
-    idea_id: int,
+    idea_id: UUID,
     roles_needed: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -191,7 +209,7 @@ def update_idea_roles(
 # ---------- Отклики на идеи ----------
 @router.post("/{idea_id}/interest", response_model=IdeaResponseOut)
 def respond_to_idea(
-    idea_id: int,
+    idea_id: UUID,
     response_data: IdeaResponseCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -235,7 +253,7 @@ def respond_to_idea(
 
 @router.get("/{idea_id}/responses", response_model=List[IdeaResponseOut])
 def get_idea_responses(
-    idea_id: int,
+    idea_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -249,7 +267,7 @@ def get_idea_responses(
 
 @router.put("/{idea_id}/responses/{response_id}/accept")
 def accept_idea_response(
-    idea_id: int,
+    idea_id: UUID,
     response_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -293,6 +311,7 @@ def accept_idea_response(
             idea_id=idea.id,
             created_by=current_user.id
         )
+        project.display_id = (db.query(func.max(Project.display_id)).scalar() or 0) + 1
         db.add(project)
         db.flush()
         # Добавляем автора идеи как участника с ролью "author"
@@ -323,7 +342,7 @@ def accept_idea_response(
 
 @router.put("/{idea_id}/responses/{response_id}/reject")
 def reject_idea_response(
-    idea_id: int,
+    idea_id: UUID,
     response_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -362,7 +381,7 @@ def get_my_projects(
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)
 def get_project(
-    project_id: int,
+    project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -379,7 +398,7 @@ def get_project(
 
 @router.get("/projects/{project_id}/members", response_model=List[ProjectMemberOut])
 def get_project_members(
-    project_id: int,
+    project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -397,7 +416,7 @@ def get_project_members(
 
 @router.post("/projects/{project_id}/invite/{user_id}")
 def invite_to_project(
-    project_id: int,
+    project_id: UUID,
     user_id: int,
     role: Optional[str] = "member",
     db: Session = Depends(get_db),
@@ -444,7 +463,7 @@ def invite_to_project(
 
 @router.post("/projects/{project_id}/invite/{invite_id}/accept")
 def accept_project_invite(
-    project_id: int,
+    project_id: UUID,
     invite_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -480,7 +499,7 @@ def accept_project_invite(
 
 @router.post("/projects/{project_id}/invite/{invite_id}/reject")
 def reject_project_invite(
-    project_id: int,
+    project_id: UUID,
     invite_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -500,7 +519,7 @@ def reject_project_invite(
 
 @router.delete("/projects/{project_id}/members/me")
 def leave_project(
-    project_id: int,
+    project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -521,7 +540,7 @@ def leave_project(
 
 @router.delete("/projects/{project_id}/members/{user_id}")
 def remove_member(
-    project_id: int,
+    project_id: UUID,
     user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -547,7 +566,7 @@ def remove_member(
 
 @router.delete("/{idea_id}/interest")
 def withdraw_interest(
-    idea_id: int,
+    idea_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
