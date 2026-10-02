@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 from uuid import UUID
@@ -26,7 +26,10 @@ def _count_responses(idea_id: UUID, db: Session) -> int:
     return db.query(func.count(IdeaResponse.id)).filter(IdeaResponse.idea_id == idea_id).scalar() or 0
 
 def _count_team_members(idea_id: UUID, db: Session) -> int:
-    return db.query(func.count(ProjectMember.id)).join(Project, ProjectMember.project_id == Project.id).filter(Project.idea_id == idea_id).scalar() or 0
+    project = db.query(Project).filter(Project.idea_id == idea_id).first()
+    if not project:
+        return 0
+    return db.query(func.count(ProjectMember.id)).filter(ProjectMember.project_id == project.id).scalar() or 0
 
 def _delete_idea_tree(idea: Idea, db: Session) -> None:
     """Remove an idea, its projects, and every dependent collaboration record."""
@@ -39,6 +42,20 @@ def _delete_idea_tree(idea: Idea, db: Session) -> None:
     db.query(IdeaResponse).filter(IdeaResponse.idea_id == idea.id).delete(synchronize_session=False)
     db.delete(idea)
 
+def _normalize_roles(raw: str) -> str:
+    """Split by comma, strip whitespace, deduplicate case-insensitively (keep first casing), rejoin."""
+    if not raw:
+        return raw
+    seen: dict[str, str] = {}
+    for role in raw.split(","):
+        r = role.strip()
+        if not r:
+            continue
+        key = r.lower()
+        if key not in seen:
+            seen[key] = r
+    return ", ".join(seen.values())
+
 # ---------- Идеи ----------
 @router.post("/", response_model=IdeaResponseSchema)
 def create_idea(
@@ -50,7 +67,7 @@ def create_idea(
         title=idea_data.title,
         short_description=idea_data.short_description,
         author_id=current_user.id,
-        roles_needed=idea_data.roles_needed,
+        roles_needed=_normalize_roles(idea_data.roles_needed),
         tags=idea_data.tags
     )
     idea.display_id = (db.query(func.max(Idea.display_id)).scalar() or 0) + 1
@@ -67,7 +84,7 @@ def list_ideas(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    status: Optional[str] = "open",
+    status: Optional[str] = None,
     tag: Optional[str] = None,
     current_user: Optional[User] = Depends(get_optional_user),
 ):
@@ -76,6 +93,16 @@ def list_ideas(
         query = query.filter(Idea.status == status)
     if tag:
         query = query.filter(Idea.tags.contains(tag))
+    # Неавторизованным и неавторам — только open; автор видит свои paused
+    if current_user:
+        query = query.filter(
+            or_(
+                Idea.status != "paused",
+                Idea.author_id == current_user.id
+            )
+        )
+    else:
+        query = query.filter(Idea.status != "paused")
     total = query.count()
     ideas = query.offset(skip).limit(limit).all()
     response.headers["X-Total-Count"] = str(total)
@@ -136,6 +163,8 @@ def update_idea(
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the author")
     for field, value in idea_data.model_dump(exclude_unset=True).items():
+        if field == "roles_needed":
+            value = _normalize_roles(value)
         setattr(idea, field, value)
     db.commit()
     db.refresh(idea)
@@ -170,22 +199,15 @@ def update_idea_status(
 ):
     """
     Изменить статус идеи.
-    Допустимые статусы: 'open', 'in_progress', 'closed'
+    Допустимые статусы: 'open', 'paused'
     """
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the author")
-    if status not in ["open", "closed"]:
+    if status not in ["open", "paused"]:
         raise HTTPException(status_code=400, detail="Invalid status")
-    if status == "closed":
-        _delete_idea_tree(idea, db)
-        db.commit()
-        _refresh_idea_display_ids(db)
-        _refresh_project_display_ids(db)
-        db.commit()
-        return {"message": "Idea closed and deleted"}
 
     idea.status = status
     db.commit()
@@ -207,9 +229,10 @@ def update_idea_roles(
         raise HTTPException(status_code=404, detail="Idea not found")
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the author")
-    idea.roles_needed = roles_needed
+    normalized = _normalize_roles(roles_needed)
+    idea.roles_needed = normalized
     db.commit()
-    return {"message": "Roles updated", "roles_needed": roles_needed}
+    return {"message": "Roles updated", "roles_needed": normalized}
 
 # ---------- Отклики на идеи ----------
 @router.post("/{idea_id}/interest", response_model=IdeaResponseOut)
@@ -232,11 +255,21 @@ def respond_to_idea(
         raise HTTPException(status_code=400, detail="You cannot respond to your own idea")
     
     # Проверяем, что выбранная роль есть в списке нужных
-    if not idea.roles_needed:
-        raise HTTPException(status_code=400, detail="No roles specified for this idea")
-    allowed_roles = [r.strip() for r in idea.roles_needed.split(",") if r.strip()]
-    if response_data.role not in allowed_roles:
-        raise HTTPException(status_code=400, detail=f"Role '{response_data.role}' is not needed for this idea")
+    allowed_roles = [r.strip() for r in (idea.roles_needed or "").split(",") if r.strip()]
+    submitted_role = response_data.role.strip()
+    if not submitted_role:
+        raise HTTPException(status_code=400, detail="Role cannot be empty")
+    canonical_role = submitted_role
+    if allowed_roles:
+        allowed_lower = [r.lower() for r in allowed_roles]
+        if submitted_role.lower() not in allowed_lower:
+            raise HTTPException(status_code=400, detail=f"Role '{response_data.role}' is not needed for this idea")
+        # Приводим к каноническому виду (первое вхождение в roles_needed)
+        for ar in allowed_roles:
+            if ar.lower() == submitted_role.lower():
+                canonical_role = ar
+                break
+    # Если roles_needed пуст — роль сохраняется как есть (уже в canonical_role)
     
     existing = db.query(IdeaResponse).filter(
         IdeaResponse.idea_id == idea_id,
@@ -248,7 +281,7 @@ def respond_to_idea(
     response = IdeaResponse(
         idea_id=idea_id,
         user_id=current_user.id,
-        role=response_data.role,
+        role=canonical_role,
         message=response_data.message
     )
     db.add(response)
@@ -259,6 +292,7 @@ def respond_to_idea(
 @router.get("/{idea_id}/responses", response_model=List[IdeaResponseOut])
 def get_idea_responses(
     idea_id: UUID,
+    status: Optional[str] = Query(None, description="pending | accepted"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -267,11 +301,12 @@ def get_idea_responses(
         raise HTTPException(status_code=404, detail="Idea not found")
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the author can view responses")
-    responses = db.query(IdeaResponse).filter(
-        IdeaResponse.idea_id == idea_id,
-        IdeaResponse.status == "pending"
-    ).all()
-    return responses
+    if status not in ("pending", "accepted", None):
+        raise HTTPException(status_code=400, detail="Invalid status filter")
+    query = db.query(IdeaResponse).filter(IdeaResponse.idea_id == idea_id)
+    if status:
+        query = query.filter(IdeaResponse.status == status)
+    return query.all()
 
 @router.put("/{idea_id}/responses/{response_id}/accept")
 def accept_idea_response(
@@ -331,6 +366,31 @@ def reject_idea_response(
     db.commit()
     return {"message": "Response rejected"}
 
+@router.put("/{idea_id}/responses/{response_id}/unaccept")
+def unaccept_idea_response(
+    idea_id: UUID,
+    response_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    idea = db.query(Idea).filter(Idea.id == idea_id).first()
+    if not idea:
+        raise HTTPException(status_code=404, detail="Idea not found")
+    if idea.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not the author")
+
+    response = db.query(IdeaResponse).filter(
+        IdeaResponse.id == response_id,
+        IdeaResponse.idea_id == idea_id,
+        IdeaResponse.status == "accepted"
+    ).first()
+    if not response:
+        raise HTTPException(status_code=404, detail="Response not found or not accepted")
+
+    response.status = "pending"
+    db.commit()
+    return {"message": "Response reverted to pending"}
+
 @router.post("/{idea_id}/convert-to-project", response_model=ProjectOut)
 def convert_idea_to_project(
     idea_id: UUID,
@@ -350,8 +410,16 @@ def convert_idea_to_project(
         IdeaResponse.status == "accepted"
     ).all()
     accepted_user_ids = [response.user_id for response in accepted_responses]
-    if accepted_user_ids and db.query(ProjectMember).filter(ProjectMember.user_id.in_(accepted_user_ids)).first():
-        raise HTTPException(status_code=400, detail="One of the accepted users is already in a project")
+    in_project = db.query(ProjectMember).filter(ProjectMember.user_id.in_(accepted_user_ids)).all()
+    if in_project:
+        usernames = [
+            db.query(User.email).filter(User.id == pm.user_id).scalar() or str(pm.user_id)
+            for pm in in_project
+        ]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Already in a project: {', '.join(usernames)}"
+        )
 
     project = Project(
         name=idea.title,
@@ -579,11 +647,10 @@ def withdraw_interest(
 ):
     response = db.query(IdeaResponse).filter(
         IdeaResponse.idea_id == idea_id,
-        IdeaResponse.user_id == current_user.id,
-        IdeaResponse.status == "pending"
+        IdeaResponse.user_id == current_user.id
     ).first()
     if not response:
-        raise HTTPException(status_code=404, detail="No pending response found")
+        raise HTTPException(status_code=404, detail="No response found")
     db.delete(response)
     db.commit()
     return {"message": "Response withdrawn"}

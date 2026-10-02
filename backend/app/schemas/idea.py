@@ -14,7 +14,6 @@ class IdeaUpdate(BaseModel):
     short_description: Optional[str] = None
     roles_needed: Optional[str] = None
     tags: Optional[str] = None
-    status: Optional[str] = None
 
 class IdeaResponse(BaseModel):
     id: UUID

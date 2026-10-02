@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Dropdown, Input, Select, Table, Typography, message, Tag, Empty } from "antd";
+import { Button, Card, Dropdown, Input, Table, Typography, message, Tag, Empty } from "antd";
 import type { MenuProps } from "antd";
 import { CaretDownOutlined, CaretUpOutlined, DownOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
@@ -11,17 +11,16 @@ export function IdeasPage() {
   const { user } = useAuthStore();
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"alphabetical" | "responses" | "date">("alphabetical");
   const [showOnlyMine, setShowOnlyMine] = useState(false);
   const [sortOrder, setSortOrder] = useState<"ascend" | "descend" | null>(null);
 
-  const fetchIdeas = async (status?: string) => {
+  const fetchIdeas = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<Idea[]>("/ideas", { params: { status } });
-      setIdeas(data.filter((idea) => idea.status !== "closed"));
+      const { data } = await api.get<Idea[]>("/ideas");
+      setIdeas(data);
     } catch {
       message.error("Не удалось загрузить идеи");
     } finally {
@@ -115,16 +114,6 @@ export function IdeasPage() {
           >
             <Button>Фильтр: {sortLabels[sortBy]} <DownOutlined /></Button>
           </Dropdown>
-          <Select
-            placeholder="Статус"
-            allowClear
-            value={statusFilter}
-            onChange={(value) => {
-              setStatusFilter(value || undefined);
-              fetchIdeas(value || undefined);
-            }}
-            options={[{ value: "open", label: "Открыта" }, { value: "in_progress", label: "В работе" }]}
-          />
           <Input
             placeholder="Поиск по идеям"
             value={search}
@@ -161,8 +150,8 @@ export function IdeasPage() {
               title: "Статус",
               dataIndex: "status",
               render: (value: string) => (
-                <Tag className="status-tag" color={value === "open" ? "green" : "blue"}>
-                  {value.replace(/_/g, " ")}
+                <Tag className="status-tag" color={value === "open" ? "green" : value === "paused" ? "orange" : "blue"}>
+                  {value === "open" ? "Открыта" : value === "paused" ? "Приостановлена" : value.replace(/_/g, " ")}
                 </Tag>
               )
             },
