@@ -15,6 +15,7 @@ import {
   message,
   Tabs,
   Empty,
+  Modal,
 } from "antd";
 import { api } from "../lib/api";
 import { Idea, IdeaResponse } from "../types";
@@ -163,8 +164,45 @@ export function IdeaDetailPage() {
     }
   };
 
+  const onConvertToProject = async () => {
+    if (!ideaId) return;
+    try {
+      const { data } = await api.post<{ id: string }>(`/ideas/${ideaId}/convert-to-project`);
+      message.success("Идея превращена в проект");
+      navigate(`/projects/${data.id}`);
+    } catch {
+      message.error("Не удалось превратить идею в проект");
+    }
+  };
+
+  const confirmConvertToProject = () => {
+    Modal.confirm({
+      title: "Превратить идею в проект?",
+      content: "Идея будет удалена, а её данные перенесены в новый проект. Это действие нельзя отменить.",
+      okText: "Превратить в проект",
+      cancelText: "Отмена",
+      onOk: onConvertToProject,
+    });
+  };
+
+  const confirmDelete = () => {
+    Modal.confirm({
+      title: "Удалить идею?",
+      content: "Идея, её отклики и связанные данные будут удалены без возможности восстановления.",
+      okText: "Удалить",
+      okButtonProps: { danger: true },
+      cancelText: "Отмена",
+      onOk: onDelete,
+    });
+  };
+
   const onUpdateStatus = async (values: { status: string }) => {
     if (!ideaId) return;
+
+    if (values.status === "closed") {
+      confirmDelete();
+      return;
+    }
 
     try {
       await api.put(`/ideas/${ideaId}/status`, null, {
@@ -294,15 +332,9 @@ export function IdeaDetailPage() {
 
             <Descriptions.Item label="Статус">
               <Tag
-                color={
-                  idea.status === "open"
-                    ? "green"
-                    : idea.status === "in_progress"
-                      ? "blue"
-                      : "red"
-                }
+                color={idea.status === "open" ? "green" : "red"}
               >
-                {idea.status}
+                {idea.status === "open" ? "Open" : "Closed"}
               </Tag>
             </Descriptions.Item>
 
@@ -326,17 +358,19 @@ export function IdeaDetailPage() {
 
             <Descriptions.Item label="Отклики">
               {idea.responses_count}
-
-              {isAuthor && (
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => setSection("responses")}
-                >
-                  посмотреть отклики
-                </Button>
-              )}
             </Descriptions.Item>
+
+            <Descriptions.Item label="Участники команды">
+              {idea.team_count}
+            </Descriptions.Item>
+
+            {isAuthor && (
+              <Descriptions.Item label="Управление откликами">
+                <Button type="link" size="small" onClick={() => setSection("responses")}>
+                  открыть список откликов
+                </Button>
+              </Descriptions.Item>
+            )}
           </Descriptions>
         </Card>
       )}
@@ -394,11 +428,7 @@ export function IdeaDetailPage() {
                   style={{ minWidth: 260 }}
                   options={[
                     { value: "open", label: "open" },
-                    {
-                      value: "in_progress",
-                      label: "in_progress",
-                    },
-                    { value: "closed", label: "closed" },
+                    { value: "closed", label: "Закрыть и удалить" },
                   ]}
                 />
               </Form.Item>
@@ -424,6 +454,10 @@ export function IdeaDetailPage() {
                 Обновить
               </Button>
             </Form>
+
+            <Button type="primary" onClick={confirmConvertToProject}>
+              Превратить идею в проект
+            </Button>
           </Space>
         </Card>
       )}
@@ -533,7 +567,7 @@ export function IdeaDetailPage() {
 
       {section === "danger" && isAuthor && (
         <Card title="Удалить идею">
-          <Button danger onClick={onDelete}>
+          <Button danger onClick={confirmDelete}>
             Удалить
           </Button>
         </Card>

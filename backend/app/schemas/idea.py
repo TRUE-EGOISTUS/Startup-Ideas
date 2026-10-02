@@ -30,6 +30,7 @@ class IdeaResponse(BaseModel):
     # Только количество откликов, без деталей (кто откликнулся и т.д.) —
     # доступно всем, в отличие от полного списка в /responses.
     responses_count: int = 0
+    team_count: int = 0
 
     @computed_field
     @property
@@ -72,6 +73,8 @@ class ProjectOut(BaseModel):
     display_id: int
     name: str
     description: Optional[str]
+    roles_needed: Optional[str] = None
+    tags: Optional[str] = None
     idea_id: Optional[UUID]
     created_by: int
     creator_email: Optional[str] = None
