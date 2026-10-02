@@ -244,7 +244,10 @@ export function IdeaDetailPage() {
     if (!ideaId) return;
 
     try {
-      await api.post(`/ideas/${ideaId}/interest`, values);
+      await api.post(`/ideas/${ideaId}/interest`, {
+        ...values,
+        role: values.role.trim(),
+      });
       message.success("Отклик отправлен");
       loadIdea();
     } catch {
@@ -468,19 +471,22 @@ export function IdeaDetailPage() {
             <Form.Item
               label="Роль"
               name="role"
-              rules={[{ required: true }]}
+              rules={[{ required: true, message: "Укажите роль" }]}
               help={
                 roleOptions.length === 0
-                  ? "Автор не указал роли для откликов"
+                  ? "Автор не указал роли — введите свою роль вручную"
                   : undefined
               }
             >
-              <Select
-                style={{ minWidth: 260 }}
-                placeholder="Выберите роль"
-                options={roleOptions}
-                disabled={roleOptions.length === 0}
-              />
+              {roleOptions.length > 0 ? (
+                <Select
+                  style={{ minWidth: 260 }}
+                  placeholder="Выберите роль"
+                  options={roleOptions}
+                />
+              ) : (
+                <Input placeholder="Например: frontend, designer, маркетолог" />
+              )}
             </Form.Item>
 
             <Form.Item label="Сообщение" name="message">
@@ -488,11 +494,7 @@ export function IdeaDetailPage() {
             </Form.Item>
 
             <Space>
-              <Button
-                type="primary"
-                htmlType="submit"
-                disabled={roleOptions.length === 0}
-              >
+              <Button type="primary" htmlType="submit">
                 Отправить
               </Button>
 

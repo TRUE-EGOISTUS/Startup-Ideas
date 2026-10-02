@@ -232,11 +232,15 @@ def respond_to_idea(
         raise HTTPException(status_code=400, detail="You cannot respond to your own idea")
     
     # Проверяем, что выбранная роль есть в списке нужных
-    if not idea.roles_needed:
-        raise HTTPException(status_code=400, detail="No roles specified for this idea")
-    allowed_roles = [r.strip() for r in idea.roles_needed.split(",") if r.strip()]
-    if response_data.role not in allowed_roles:
-        raise HTTPException(status_code=400, detail=f"Role '{response_data.role}' is not needed for this idea")
+    allowed_roles = [r.strip() for r in (idea.roles_needed or "").split(",") if r.strip()]
+    submitted_role = response_data.role.strip()
+    if not submitted_role:
+        raise HTTPException(status_code=400, detail="Role cannot be empty")
+    if allowed_roles:
+        allowed_lower = [r.lower() for r in allowed_roles]
+        if submitted_role.lower() not in allowed_lower:
+            raise HTTPException(status_code=400, detail=f"Role '{response_data.role}' is not needed for this idea")
+    # Если roles_needed пуст — разрешаем отклик, роль сохраняется как есть
     
     existing = db.query(IdeaResponse).filter(
         IdeaResponse.idea_id == idea_id,
