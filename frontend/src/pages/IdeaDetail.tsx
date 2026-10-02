@@ -16,6 +16,7 @@ import {
   Tabs,
   Empty,
   Modal,
+  Segmented,
 } from "antd";
 import { api } from "../lib/api";
 import { Idea, IdeaResponse } from "../types";
@@ -28,6 +29,7 @@ export function IdeaDetailPage() {
 
   const [idea, setIdea] = useState<Idea | null>(null);
   const [responses, setResponses] = useState<IdeaResponse[]>([]);
+  const [responseFilter, setResponseFilter] = useState<"pending" | "accepted">("pending");
   const [section, setSection] = useState<
     "details" | "update" | "status" | "respond" | "responses" | "danger"
   >("details");
@@ -73,6 +75,8 @@ export function IdeaDetailPage() {
     }
   };
 
+  // Отклики загружаются все сразу при входе в раздел
+  // (эндпоинт /responses и так отдаёт 403 всем остальным).
   const loadResponses = async () => {
     if (!ideaId) return;
 
@@ -85,6 +89,11 @@ export function IdeaDetailPage() {
       message.error("Не удалось загрузить отклики");
     }
   };
+
+  const filteredResponses = useMemo(
+    () => responses.filter((r) => r.status === responseFilter),
+    [responses, responseFilter]
+  );
 
   useEffect(() => {
     loadIdea();
@@ -196,31 +205,6 @@ export function IdeaDetailPage() {
     });
   };
 
-  const onUpdateStatus = async (values: { status: string }) => {
-    if (!ideaId) return;
-
-    if (values.status === "closed") {
-      confirmDelete();
-      return;
-    }
-
-    try {
-      await api.put(`/ideas/${ideaId}/status`, null, {
-        params: { status: values.status },
-      });
-
-      message.success("Статус обновлен");
-
-      if (values.status === "closed") {
-        message.success("Идея и связанные проекты удалены");
-        navigate("/ideas");
-      } else {
-        loadIdea();
-      }
-    } catch {
-      message.error("Не удалось обновить статус");
-    }
-  };
 
   const onUpdateRoles = async (values: { roles_needed: string }) => {
     if (!ideaId) return;
@@ -262,8 +246,13 @@ export function IdeaDetailPage() {
       await api.delete(`/ideas/${ideaId}/interest`);
       message.success("Отклик отозван");
       loadIdea();
-    } catch {
-      message.error("Не удалось отозвать отклик");
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      if (detail === "No response found") {
+        message.error("Отклик не найден");
+      } else {
+        message.error("Не удалось отозвать отклик");
+      }
     }
   };
 
@@ -294,6 +283,21 @@ export function IdeaDetailPage() {
       loadResponses();
     } catch {
       message.error("Не удалось отклонить отклик");
+    }
+  };
+
+  const onUnacceptResponse = async (responseId: number) => {
+    if (!ideaId) return;
+
+    try {
+      await api.put(
+        `/ideas/${ideaId}/responses/${responseId}/unaccept`
+      );
+
+      message.success("Отклик возвращён в ожидание");
+      loadResponses();
+    } catch {
+      message.error("Не удалось отменить принятие");
     }
   };
 
@@ -335,9 +339,15 @@ export function IdeaDetailPage() {
 
             <Descriptions.Item label="Статус">
               <Tag
-                color={idea.status === "open" ? "green" : "red"}
+                color={
+                  idea.status === "open" ? "green"
+                    : idea.status === "paused" ? "orange"
+                    : "default"
+                }
               >
-                {idea.status === "open" ? "Open" : "Closed"}
+                {idea.status === "open" ? "Открыта"
+                  : idea.status === "paused" ? "Приостановлена"
+                  : idea.status}
               </Tag>
             </Descriptions.Item>
 
@@ -363,8 +373,8 @@ export function IdeaDetailPage() {
               {idea.responses_count}
             </Descriptions.Item>
 
-            <Descriptions.Item label="Участники команды">
-              {idea.team_count}
+            <Descriptions.Item label="Принято откликов">
+              {responses.filter((r) => r.status === "accepted").length}
             </Descriptions.Item>
 
             {isAuthor && (
@@ -421,25 +431,42 @@ export function IdeaDetailPage() {
             size="large"
             className="w-full"
           >
-            <Form layout="inline" onFinish={onUpdateStatus}>
-              <Form.Item
-                label="Статус"
-                name="status"
-                rules={[{ required: true }]}
+            {idea && idea.status === "open" && (
+              <Button
+                onClick={async () => {
+                  try {
+                    await api.put(`/ideas/${ideaId}/status`, null, {
+                      params: { status: "paused" },
+                    });
+                    message.success("Идея приостановлена");
+                    loadIdea();
+                  } catch {
+                    message.error("Не удалось приостановить идею");
+                  }
+                }}
               >
-                <Select
-                  style={{ minWidth: 260 }}
-                  options={[
-                    { value: "open", label: "open" },
-                    { value: "closed", label: "Закрыть и удалить" },
-                  ]}
-                />
-              </Form.Item>
-
-              <Button type="primary" htmlType="submit">
-                Обновить
+                Приостановить
               </Button>
-            </Form>
+            )}
+
+            {idea && idea.status === "paused" && (
+              <Button
+                type="primary"
+                onClick={async () => {
+                  try {
+                    await api.put(`/ideas/${ideaId}/status`, null, {
+                      params: { status: "open" },
+                    });
+                    message.success("Идея возобновлена");
+                    loadIdea();
+                  } catch {
+                    message.error("Не удалось возобновить идею");
+                  }
+                }}
+              >
+                Возобновить
+              </Button>
+            )}
 
             <Form layout="inline" onFinish={onUpdateRoles}>
               <Form.Item
@@ -508,6 +535,41 @@ export function IdeaDetailPage() {
 
       {section === "responses" && isAuthor && (
         <Card title="Отклики">
+          <Segmented
+            value={responseFilter}
+            options={[
+              {
+                label: `Новые (${responses.filter((r) => r.status === "pending").length})`,
+                value: "pending",
+              },
+              {
+                label: `Принятые (${responses.filter((r) => r.status === "accepted").length})`,
+                value: "accepted",
+              },
+            ]}
+            onChange={(val) => setResponseFilter(val as typeof responseFilter)}
+            style={{ marginBottom: 16 }}
+          />
+
+          {idea?.roles_needed && (
+            <div style={{ marginBottom: 16, fontSize: 14, color: "#666" }}>
+              {idea.roles_needed
+                .split(",")
+                .map((r) => r.trim())
+                .filter(Boolean)
+                .map((role) => {
+                  const pending = responses.filter(
+                    (r) => r.role.toLowerCase() === role.toLowerCase() && r.status === "pending"
+                  ).length;
+                  const accepted = responses.filter(
+                    (r) => r.role.toLowerCase() === role.toLowerCase() && r.status === "accepted"
+                  ).length;
+                  return `${role}: принято ${accepted} · ожидает ${pending}`;
+                })
+                .join(" · ")}
+            </div>
+          )}
+
           <div className="page-toolbar">
             <Typography.Text>
               Всего откликов: {responses.length}
@@ -519,32 +581,42 @@ export function IdeaDetailPage() {
           </div>
 
           <List
-            dataSource={responses}
+            dataSource={filteredResponses}
             locale={{
               emptyText: (
                 <div className="empty-panel">
-                  <Empty description="Откликов пока нет" />
+                  <Empty description="Нет откликов" />
                 </div>
               ),
             }}
             renderItem={(item) => (
               <List.Item
                 actions={[
-                  <Button
-                    key="accept"
-                    type="primary"
-                    onClick={() => onAcceptResponse(item.id)}
-                  >
-                    Принять
-                  </Button>,
-
-                  <Button
-                    key="reject"
-                    danger
-                    onClick={() => onRejectResponse(item.id)}
-                  >
-                    Отклонить
-                  </Button>,
+                  ...(item.status === "pending"
+                    ? [
+                        <Button
+                          key="accept"
+                          type="primary"
+                          onClick={() => onAcceptResponse(item.id)}
+                        >
+                          Принять
+                        </Button>,
+                        <Button
+                          key="reject"
+                          danger
+                          onClick={() => onRejectResponse(item.id)}
+                        >
+                          Отклонить
+                        </Button>,
+                      ]
+                    : [
+                        <Button
+                          key="unaccept"
+                          onClick={() => onUnacceptResponse(item.id)}
+                        >
+                          Отменить принятие
+                        </Button>,
+                      ]),
                 ]}
               >
                 <List.Item.Meta
@@ -558,8 +630,8 @@ export function IdeaDetailPage() {
                   }
                 />
 
-                <Tag className="status-tag">
-                  {item.status}
+                <Tag className="status-tag" color={item.status === "accepted" ? "green" : "blue"}>
+                  {item.status === "accepted" ? "Принят" : "Ожидает"}
                 </Tag>
               </List.Item>
             )}

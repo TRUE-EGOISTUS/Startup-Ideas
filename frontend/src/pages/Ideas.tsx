@@ -20,7 +20,7 @@ export function IdeasPage() {
     setLoading(true);
     try {
       const { data } = await api.get<Idea[]>("/ideas");
-      setIdeas(data.filter((idea) => idea.status !== "closed"));
+      setIdeas(data);
     } catch {
       message.error("Не удалось загрузить идеи");
     } finally {
@@ -150,8 +150,8 @@ export function IdeasPage() {
               title: "Статус",
               dataIndex: "status",
               render: (value: string) => (
-                <Tag className="status-tag" color={value === "open" ? "green" : "blue"}>
-                  {value.replace(/_/g, " ")}
+                <Tag className="status-tag" color={value === "open" ? "green" : value === "paused" ? "orange" : "blue"}>
+                  {value === "open" ? "Открыта" : value === "paused" ? "Приостановлена" : value.replace(/_/g, " ")}
                 </Tag>
               )
             },
