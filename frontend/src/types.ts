@@ -53,6 +53,7 @@ export type Idea = {
   status: string;
   created_at: string;
   responses_count: number;
+  team_count: number;
 };
 
 export type IdeaResponse = {
@@ -70,6 +71,8 @@ export type Project = {
   display_id: number;
   name: string;
   description?: string | null;
+  roles_needed?: string | null;
+  tags?: string | null;
   idea_id?: string | null;
   created_by: number;
   creator_email?: string | null;

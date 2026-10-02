@@ -83,6 +83,8 @@ export function ProjectDetailPage() {
                 <Descriptions column={1} bordered>
                   <Descriptions.Item label="Название">{project.name}</Descriptions.Item>
                   <Descriptions.Item label="Описание">{project.description || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="Роли">{project.roles_needed || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="Теги">{project.tags || "-"}</Descriptions.Item>
                   <Descriptions.Item label="ID идеи">{project.idea_id ?? "-"}</Descriptions.Item>
                   <Descriptions.Item label="Создатель">
                     <Link to={`/profile/${project.created_by}`}>{project.creator_email || "-"}</Link>

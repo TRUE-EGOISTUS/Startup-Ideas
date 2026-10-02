@@ -25,6 +25,9 @@ def _refresh_project_display_ids(db: Session) -> None:
 def _count_responses(idea_id: UUID, db: Session) -> int:
     return db.query(func.count(IdeaResponse.id)).filter(IdeaResponse.idea_id == idea_id).scalar() or 0
 
+def _count_team_members(idea_id: UUID, db: Session) -> int:
+    return db.query(func.count(ProjectMember.id)).join(Project, ProjectMember.project_id == Project.id).filter(Project.idea_id == idea_id).scalar() or 0
+
 def _delete_idea_tree(idea: Idea, db: Session) -> None:
     """Remove an idea, its projects, and every dependent collaboration record."""
     project_ids = [project_id for (project_id,) in db.query(Project.id).filter(Project.idea_id == idea.id).all()]
@@ -89,6 +92,7 @@ def list_ideas(
     for idea in ideas:
         item = IdeaResponseSchema.model_validate(idea)
         item.responses_count = counts.get(idea.id, 0)
+        item.team_count = _count_team_members(idea.id, db)
         result.append(item)
     return result
 
@@ -116,6 +120,7 @@ def get_idea(
         raise HTTPException(status_code=404, detail="Idea not found")
     item = IdeaResponseSchema.model_validate(idea)
     item.responses_count = _count_responses(idea_id, db)
+    item.team_count = _count_team_members(idea_id, db)
     return item
 
 @router.put("/{idea_id}", response_model=IdeaResponseSchema)
@@ -172,7 +177,7 @@ def update_idea_status(
         raise HTTPException(status_code=404, detail="Idea not found")
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the author")
-    if status not in ["open", "in_progress", "closed"]:
+    if status not in ["open", "closed"]:
         raise HTTPException(status_code=400, detail="Invalid status")
     if status == "closed":
         _delete_idea_tree(idea, db)
@@ -262,7 +267,10 @@ def get_idea_responses(
         raise HTTPException(status_code=404, detail="Idea not found")
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the author can view responses")
-    responses = db.query(IdeaResponse).filter(IdeaResponse.idea_id == idea_id).all()
+    responses = db.query(IdeaResponse).filter(
+        IdeaResponse.idea_id == idea_id,
+        IdeaResponse.status == "pending"
+    ).all()
     return responses
 
 @router.put("/{idea_id}/responses/{response_id}/accept")
@@ -294,51 +302,9 @@ def accept_idea_response(
     if responder_membership:
         raise HTTPException(status_code=400, detail="User is already a member of another project")
     
-    # Проверяем, нет ли уже принятого участника на эту роль в проекте
-    project = db.query(Project).filter(Project.idea_id == idea_id).first()
-    if project:
-        existing_member_with_role = db.query(ProjectMember).filter(
-            ProjectMember.project_id == project.id,
-            ProjectMember.role == response.role
-        ).first()
-        if existing_member_with_role:
-            raise HTTPException(status_code=400, detail=f"Role '{response.role}' is already filled in the project")
-    else:
-        # Создаём проект
-        project = Project(
-            name=idea.title,
-            description=idea.short_description,
-            idea_id=idea.id,
-            created_by=current_user.id
-        )
-        project.display_id = (db.query(func.max(Project.display_id)).scalar() or 0) + 1
-        db.add(project)
-        db.flush()
-        # Добавляем автора идеи как участника с ролью "author"
-        author_member = ProjectMember(project_id=project.id, user_id=current_user.id, role="author")
-        db.add(author_member)
-    
-    # Добавляем пользователя в проект
-    existing_member = db.query(ProjectMember).filter(
-        ProjectMember.project_id == project.id,
-        ProjectMember.user_id == response.user_id
-    ).first()
-    if not existing_member:
-        member = ProjectMember(project_id=project.id, user_id=response.user_id, role=response.role)
-        db.add(member)
-        db.flush()
-    
     response.status = "accepted"
-    
-    # Проверяем, все ли роли заполнены (опционально)
-    if idea.roles_needed:
-        needed_roles = set(r.strip() for r in idea.roles_needed.split(",") if r.strip())
-        filled_roles = set(m.role for m in project.members if m.role in needed_roles)
-        if needed_roles.issubset(filled_roles):
-            idea.status = "in_progress"
-    
     db.commit()
-    return {"message": "User accepted and added to project", "project_id": project.id}
+    return {"message": "User accepted; they will join when the idea becomes a project"}
 
 @router.put("/{idea_id}/responses/{response_id}/reject")
 def reject_idea_response(
@@ -361,9 +327,50 @@ def reject_idea_response(
     if not response:
         raise HTTPException(status_code=404, detail="Response not found or already processed")
     
-    response.status = "rejected"
+    db.delete(response)
     db.commit()
     return {"message": "Response rejected"}
+
+@router.post("/{idea_id}/convert-to-project", response_model=ProjectOut)
+def convert_idea_to_project(
+    idea_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    idea = db.query(Idea).filter(Idea.id == idea_id).first()
+    if not idea:
+        raise HTTPException(status_code=404, detail="Idea not found")
+    if idea.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not the author")
+    if idea.status != "open":
+        raise HTTPException(status_code=400, detail="Only open ideas can become projects")
+
+    accepted_responses = db.query(IdeaResponse).filter(
+        IdeaResponse.idea_id == idea.id,
+        IdeaResponse.status == "accepted"
+    ).all()
+    accepted_user_ids = [response.user_id for response in accepted_responses]
+    if accepted_user_ids and db.query(ProjectMember).filter(ProjectMember.user_id.in_(accepted_user_ids)).first():
+        raise HTTPException(status_code=400, detail="One of the accepted users is already in a project")
+
+    project = Project(
+        name=idea.title,
+        description=idea.short_description,
+        roles_needed=idea.roles_needed,
+        tags=idea.tags,
+        created_by=current_user.id,
+        display_id=(db.query(func.max(Project.display_id)).scalar() or 0) + 1,
+    )
+    db.add(project)
+    db.flush()
+    db.add(ProjectMember(project_id=project.id, user_id=current_user.id, role="author"))
+    for response in accepted_responses:
+        db.add(ProjectMember(project_id=project.id, user_id=response.user_id, role=response.role))
+    db.query(IdeaResponse).filter(IdeaResponse.idea_id == idea.id).delete(synchronize_session=False)
+    db.delete(idea)
+    db.commit()
+    db.refresh(project)
+    return project
 
 # ---------- Проекты ----------
 @router.get("/projects/my", response_model=List[ProjectOut])
