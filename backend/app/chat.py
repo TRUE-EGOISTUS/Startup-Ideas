@@ -1,6 +1,7 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 from app.database import get_db, SessionLocal
 from app.models import Task, Message, User, ProjectMessage, Project, ProjectMember
 from app.auth import get_current_user
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 router = APIRouter(prefix="/tasks/{task_id}/messages", tags=["chat"])
 project_router = APIRouter(prefix="/projects", tags=["project-chat"])
 task_chat_connections: dict[UUID, set[WebSocket]] = {}
+project_chat_connections: dict[UUID, set[WebSocket]] = {}
 
 def _can_access_task_chat(task: Task, user: User) -> bool:
     if task.execution_mode == "classic" and task.assigned_to_id is None:
@@ -55,7 +57,14 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
         task_chat_connections.setdefault(task_id, set()).add(websocket)
         try:
             while True:
-                payload = await websocket.receive_json()
+                try:
+                    payload = await websocket.receive_json()
+                except (TypeError, ValueError):
+                    await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                    continue
+                if not isinstance(payload, dict):
+                    await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                    continue
                 text = str(payload.get("text", "")).strip()
                 if not text or len(text) > 2000:
                     await websocket.send_json({"type": "error", "detail": "Message must contain 1-2000 characters"})
@@ -140,6 +149,154 @@ def get_messages(
         messages.reverse()
 
     return messages
+
+@project_router.websocket("/{project_id}/messages/ws")
+async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
+    token = websocket.cookies.get("access_token")
+    if not token:
+        authorization = websocket.headers.get("authorization", "")
+        token = authorization.removeprefix("Bearer ").strip() or None
+    if not token:
+        await websocket.close(code=4001)
+        return
+
+    db = SessionLocal()
+    try:
+        from app.auth import get_current_user_from_token
+        try:
+            current_user = get_current_user_from_token(token, db)
+        except HTTPException:
+            await websocket.close(code=4001)
+            return
+
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            await websocket.close(code=4004)
+            return
+        member = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == current_user.id
+        ).first()
+        if not member:
+            await websocket.close(code=4003)
+            return
+
+        await websocket.accept()
+        project_chat_connections.setdefault(project_id, set()).add(websocket)
+        try:
+            while True:
+                try:
+                    payload = await websocket.receive_json()
+                except (TypeError, ValueError):
+                    await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                    continue
+                if not isinstance(payload, dict):
+                    await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                    continue
+                text = str(payload.get("text", "")).strip()
+                if not text or len(text) > 2000:
+                    await websocket.send_json({"type": "error", "detail": "Message must contain 1-2000 characters"})
+                    continue
+
+                chat_message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text)
+                db.add(chat_message)
+                db.commit()
+                db.refresh(chat_message)
+                await _broadcast_project_message(project_id, {
+                    "type": "message",
+                    "client_id": payload.get("client_id"),
+                    "id": chat_message.id,
+                    "project_id": str(chat_message.project_id),
+                    "user_id": chat_message.user_id,
+                    "text": chat_message.text,
+                    "is_announcement": chat_message.is_announcement,
+                    "created_at": chat_message.created_at.isoformat(),
+                    "sender_name": chat_message.sender_name,
+                    "sender_avatar_url": chat_message.sender_avatar_url,
+                })
+        except WebSocketDisconnect:
+            pass
+        finally:
+            project_chat_connections.get(project_id, set()).discard(websocket)
+    finally:
+        db.close()
+
+async def _broadcast_project_message(project_id: UUID, payload: dict) -> None:
+    connections = project_chat_connections.get(project_id, set())
+    disconnected = []
+    for connection in connections:
+        try:
+            await connection.send_json(payload)
+        except Exception:
+            disconnected.append(connection)
+    for connection in disconnected:
+        connections.discard(connection)
+
+@project_router.post("/{project_id}/messages/announce", response_model=ProjectMessageOut)
+async def announce_project_message(
+    project_id: UUID,
+    message_data: ProjectMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == current_user.id
+    ).first()
+    if not member:
+        raise HTTPException(status_code=403, detail="You are not a member of this project")
+    if project.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the project creator can publish announcements")
+
+    text = message_data.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(text) > 2000:
+        raise HTTPException(status_code=400, detail="Message too long (max 2000 chars)")
+
+    message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text, is_announcement=True)
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    await _broadcast_project_message(project_id, {
+        "type": "announcement",
+        "id": message.id,
+        "project_id": str(message.project_id),
+        "user_id": message.user_id,
+        "text": message.text,
+        "is_announcement": True,
+        "created_at": message.created_at.isoformat(),
+        "sender_name": message.sender_name,
+        "sender_avatar_url": message.sender_avatar_url,
+    })
+    return message
+
+@project_router.get("/{project_id}/announcements", response_model=list[ProjectMessageOut])
+def get_project_announcements(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == current_user.id
+    ).first()
+    if not member:
+        raise HTTPException(status_code=403, detail="You are not a member")
+
+    return db.query(ProjectMessage).options(
+        joinedload(ProjectMessage.user).joinedload(User.specialist_profile),
+        joinedload(ProjectMessage.user).joinedload(User.company_profile),
+    ).filter(
+        ProjectMessage.project_id == project_id,
+        ProjectMessage.is_announcement == True
+    ).order_by(ProjectMessage.created_at.desc()).all()
 
 @project_router.post("/{project_id}/messages", response_model=ProjectMessageOut)
 def send_project_message(

@@ -125,9 +125,6 @@ export function IdeasPage() {
             </Button>
           )}
         </div>
-        <Typography.Text type="secondary" className="block mb-3">
-          Всего откликов: {visibleIdeas.reduce((total, idea) => total + idea.responses_count, 0)}
-        </Typography.Text>
         <Table
           rowKey="id"
           loading={loading}

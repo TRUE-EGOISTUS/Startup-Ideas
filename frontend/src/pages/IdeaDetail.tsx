@@ -17,6 +17,7 @@ import {
   Empty,
   Modal,
   Segmented,
+  Table,
 } from "antd";
 import { api } from "../lib/api";
 import { Idea, IdeaResponse } from "../types";
@@ -29,7 +30,7 @@ export function IdeaDetailPage() {
 
   const [idea, setIdea] = useState<Idea | null>(null);
   const [responses, setResponses] = useState<IdeaResponse[]>([]);
-  const [responseFilter, setResponseFilter] = useState<"pending" | "accepted">("pending");
+  const [responsesTab, setResponsesTab] = useState<"all" | "pending" | "accepted">("all");
   const [section, setSection] = useState<
     "details" | "update" | "status" | "respond" | "responses" | "danger"
   >("details");
@@ -90,11 +91,6 @@ export function IdeaDetailPage() {
     }
   };
 
-  const filteredResponses = useMemo(
-    () => responses.filter((r) => r.status === responseFilter),
-    [responses, responseFilter]
-  );
-
   useEffect(() => {
     loadIdea();
 
@@ -145,6 +141,8 @@ export function IdeaDetailPage() {
       title: idea.title,
       short_description: idea.short_description,
       roles_needed: idea.roles_needed,
+      roles_specialists: idea.roles_specialists,
+      roles_companies: idea.roles_companies,
       tags: idea.tags,
     });
   }, [idea, updateForm]);
@@ -206,12 +204,20 @@ export function IdeaDetailPage() {
   };
 
 
-  const onUpdateRoles = async (values: { roles_needed: string }) => {
+  const onUpdateRoles = async (values: {
+    roles_needed?: string;
+    roles_specialists?: string;
+    roles_companies?: string;
+  }) => {
     if (!ideaId) return;
 
     try {
       await api.put(`/ideas/${ideaId}/roles`, null, {
-        params: { roles_needed: values.roles_needed },
+        params: {
+          ...(values.roles_needed !== undefined ? { roles_needed: values.roles_needed } : {}),
+          ...(values.roles_specialists !== undefined ? { roles_specialists: values.roles_specialists } : {}),
+          ...(values.roles_companies !== undefined ? { roles_companies: values.roles_companies } : {}),
+        },
       });
 
       message.success("Роли обновлены");
@@ -220,6 +226,33 @@ export function IdeaDetailPage() {
       message.error("Не удалось обновить роли");
     }
   };
+
+  const onDeleteRole = (role: string, accountType: "specialist" | "company") => {
+    if (!ideaId) return;
+    Modal.confirm({
+      title: "Удалить роль?",
+      content: `Роль «${role}» будет удалена из списка ролей ${accountType === "company" ? "компаний" : "специалистов"}.`,
+      okText: "Удалить",
+      cancelText: "Отмена",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await api.delete(`/ideas/${ideaId}/roles`, { params: { role, account_type: accountType } });
+          message.success("Роль удалена");
+          await loadIdea();
+        } catch {
+          message.error("Не удалось удалить роль");
+        }
+      }
+    });
+  };
+
+  const roleTags = (raw: string | null | undefined, accountType: "specialist" | "company") =>
+    (raw || "").split(",").map((role) => role.trim()).filter(Boolean).map((role) => (
+      <Tag key={role} closable={isAuthor} onClose={() => onDeleteRole(role, accountType)}>
+        {role}
+      </Tag>
+    ));
 
   const onRespond = async (values: {
     role: string;
@@ -304,7 +337,7 @@ export function IdeaDetailPage() {
   return (
     <div className="space-y-6">
       <Typography.Title level={2} className="page-title">
-        Идея #{ideaId}
+        {idea?.title}
       </Typography.Title>
 
       <Tabs
@@ -362,7 +395,10 @@ export function IdeaDetailPage() {
             </Descriptions.Item>
 
             <Descriptions.Item label="Роли">
-              {idea.roles_needed || "-"}
+              <Space direction="vertical">
+                <span>Специалисты: {roleTags(idea.roles_specialists || idea.roles_needed, "specialist")}</span>
+                <span>Компании: {roleTags(idea.roles_companies, "company")}</span>
+              </Space>
             </Descriptions.Item>
 
             <Descriptions.Item label="Теги">
@@ -406,10 +442,15 @@ export function IdeaDetailPage() {
               <Input.TextArea rows={2} />
             </Form.Item>
 
-            <Form.Item
-              label="Роли (через запятую)"
-              name="roles_needed"
-            >
+            <Form.Item label="Роли специалистов (через запятую)" name="roles_specialists">
+              <Input placeholder="Frontend, Backend, Product" />
+            </Form.Item>
+
+            <Form.Item label="Роли компаний (через запятую)" name="roles_companies">
+              <Input placeholder="Инвестор, Партнёр, Заказчик" />
+            </Form.Item>
+
+            <Form.Item name="roles_needed" hidden>
               <Input />
             </Form.Item>
 
@@ -425,12 +466,8 @@ export function IdeaDetailPage() {
       )}
 
       {section === "status" && isAuthor && (
-        <Card title="Статус и роли">
-          <Space
-            direction="vertical"
-            size="large"
-            className="w-full"
-          >
+        <Space direction="vertical" size="large" className="w-full">
+          <Card title="Статус идеи" size="small">
             {idea && idea.status === "open" && (
               <Button
                 onClick={async () => {
@@ -467,29 +504,52 @@ export function IdeaDetailPage() {
                 Возобновить
               </Button>
             )}
+          </Card>
 
+          <Card title="Роли" size="small">
+            <Typography.Text type="secondary">Нажмите крестик на роли, чтобы удалить ее после подтверждения.</Typography.Text>
+            <div style={{ margin: "12px 0" }}>
+              <Typography.Text strong>Роли специалистов: </Typography.Text>
+              {roleTags(idea?.roles_specialists || idea?.roles_needed, "specialist")}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Typography.Text strong>Роли компаний: </Typography.Text>
+              {roleTags(idea?.roles_companies, "company")}
+            </div>
             <Form layout="inline" onFinish={onUpdateRoles}>
               <Form.Item
-                label="Роли"
-                name="roles_needed"
+                name="roles_specialists"
                 rules={[{ required: true }]}
               >
                 <Input
                   style={{ minWidth: 320 }}
-                  placeholder="Например: разработчик, дизайнер, маркетолог"
+                  placeholder="Новые роли специалистов через запятую"
                 />
               </Form.Item>
 
               <Button type="primary" htmlType="submit">
-                Обновить
+                Сохранить роли специалистов
               </Button>
             </Form>
+            <Form layout="inline" onFinish={onUpdateRoles} style={{ marginTop: 12 }}>
+              <Form.Item name="roles_companies">
+                <Input
+                  style={{ minWidth: 320 }}
+                  placeholder="Новые роли компаний через запятую"
+                />
+              </Form.Item>
+              <Button type="primary" htmlType="submit">
+                Сохранить роли компаний
+              </Button>
+            </Form>
+          </Card>
 
-            <Button type="primary" onClick={confirmConvertToProject}>
+          <Card title="Конвертация" size="small">
+            <Button type="primary" danger onClick={confirmConvertToProject}>
               Превратить идею в проект
             </Button>
-          </Space>
-        </Card>
+          </Card>
+        </Space>
       )}
 
       {section === "respond" && canRespond && (
@@ -536,106 +596,139 @@ export function IdeaDetailPage() {
       {section === "responses" && isAuthor && (
         <Card title="Отклики">
           <Segmented
-            value={responseFilter}
+            value={responsesTab}
             options={[
               {
-                label: `Новые (${responses.filter((r) => r.status === "pending").length})`,
+                label: "Все",
+                value: "all",
+              },
+              {
+                label: `Новые`,
                 value: "pending",
               },
               {
-                label: `Принятые (${responses.filter((r) => r.status === "accepted").length})`,
+                label: `Принятые`,
                 value: "accepted",
               },
             ]}
-            onChange={(val) => setResponseFilter(val as typeof responseFilter)}
+            onChange={(val) => setResponsesTab(val as typeof responsesTab)}
             style={{ marginBottom: 16 }}
           />
 
-          {idea?.roles_needed && (
-            <div style={{ marginBottom: 16, fontSize: 14, color: "#666" }}>
-              {idea.roles_needed
+          {responsesTab === "all" && idea?.roles_needed && (
+            <Table
+              dataSource={idea.roles_needed
                 .split(",")
                 .map((r) => r.trim())
                 .filter(Boolean)
-                .map((role) => {
-                  const pending = responses.filter(
+                .map((role) => ({
+                  role,
+                  pending: responses.filter(
                     (r) => r.role.toLowerCase() === role.toLowerCase() && r.status === "pending"
-                  ).length;
-                  const accepted = responses.filter(
+                  ).length,
+                  accepted: responses.filter(
                     (r) => r.role.toLowerCase() === role.toLowerCase() && r.status === "accepted"
-                  ).length;
-                  return `${role}: принято ${accepted} · ожидает ${pending}`;
-                })
-                .join(" · ")}
-            </div>
+                  ).length,
+                }))
+              }
+              rowKey="role"
+              pagination={false}
+              size="small"
+              columns={[
+                { title: "Роль", dataIndex: "role", key: "role" },
+                {
+                  title: "Принято",
+                  dataIndex: "accepted",
+                  key: "accepted",
+                  render: (v: number) => (
+                    <Tag color="green">{v}</Tag>
+                  ),
+                },
+                {
+                  title: "Ожидает",
+                  dataIndex: "pending",
+                  key: "pending",
+                  render: (v: number) => (
+                    <Tag color="blue">{v}</Tag>
+                  ),
+                },
+              ]}
+            />
           )}
 
-          <div className="page-toolbar">
-            <Typography.Text>
-              Всего откликов: {responses.length}
-            </Typography.Text>
+          {responsesTab !== "all" && (
+            <>
+              <div className="page-toolbar">
+                <Typography.Text>
+                  Всего откликов: {responses.length}
+                </Typography.Text>
 
-            <Button onClick={loadResponses}>
-              Обновить
-            </Button>
-          </div>
+                <Button onClick={loadResponses}>
+                  Обновить
+                </Button>
+              </div>
 
-          <List
-            dataSource={filteredResponses}
-            locale={{
-              emptyText: (
-                <div className="empty-panel">
-                  <Empty description="Нет откликов" />
-                </div>
-              ),
-            }}
-            renderItem={(item) => (
-              <List.Item
-                actions={[
-                  ...(item.status === "pending"
-                    ? [
-                        <Button
-                          key="accept"
-                          type="primary"
-                          onClick={() => onAcceptResponse(item.id)}
-                        >
-                          Принять
-                        </Button>,
-                        <Button
-                          key="reject"
-                          danger
-                          onClick={() => onRejectResponse(item.id)}
-                        >
-                          Отклонить
-                        </Button>,
-                      ]
-                    : [
-                        <Button
-                          key="unaccept"
-                          onClick={() => onUnacceptResponse(item.id)}
-                        >
-                          Отменить принятие
-                        </Button>,
-                      ]),
-                ]}
-              >
-                <List.Item.Meta
-                  title={
-                    <Link to={`/profile/${item.user_id}`}>
-                      User {item.user_id} · {item.role}
-                    </Link>
-                  }
-                  description={
-                    item.message || "Сообщение не указано"
-                  }
-                />
+              <List
+                dataSource={responses.filter((r) => r.status === responsesTab)}
+                locale={{
+                  emptyText: (
+                    <div className="empty-panel">
+                      <Empty description="Нет откликов" />
+                    </div>
+                  ),
+                }}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      ...(item.status === "pending"
+                        ? [
+                            <Button
+                              key="accept"
+                              type="primary"
+                              onClick={() => onAcceptResponse(item.id)}
+                            >
+                              Принять
+                            </Button>,
+                            <Button
+                              key="reject"
+                              danger
+                              onClick={() => onRejectResponse(item.id)}
+                            >
+                              Отклонить
+                            </Button>,
+                          ]
+                        : [
+                            <Button
+                              key="unaccept"
+                              onClick={() => onUnacceptResponse(item.id)}
+                            >
+                              Отменить принятие
+                            </Button>,
+                          ]),
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <Link to={`/profile/${item.user_id}`}>
+                            {item.user_nickname || `User #${item.user_id}`}
+                          </Link>
+                          <Tag color="cyan">{item.role}</Tag>
+                        </div>
+                      }
+                      description={
+                        item.message || "Сообщение не указано"
+                      }
+                    />
 
-                <Tag className="status-tag" color={item.status === "accepted" ? "green" : "blue"}>
-                  {item.status === "accepted" ? "Принят" : "Ожидает"}
-                </Tag>
-              </List.Item>
-            )}
-          />
+                    <Tag className="status-tag" color={item.status === "accepted" ? "green" : "blue"}>
+                      {item.status === "accepted" ? "Принят" : "Ожидает"}
+                    </Tag>
+                  </List.Item>
+                )}
+              />
+            </>
+          )}
         </Card>
       )}
 

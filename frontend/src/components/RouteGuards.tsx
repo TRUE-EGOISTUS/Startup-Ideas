@@ -44,3 +44,26 @@ export function RequireRole({ role, children }: { role: "company" | "specialist"
 
   return <>{children}</>;
 }
+
+export function RequireAdmin({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const { user, loading } = useAuthStore();
+
+  if (loading) {
+    return (
+      <div className="app-page-loading">
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (!user.is_superuser) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}

@@ -1,9 +1,10 @@
 import { createBrowserRouter } from "react-router-dom";
 import { MainLayout } from "./layout/MainLayout";
-import { RequireAuth, RequireRole } from "./components/RouteGuards";
+import { RequireAdmin, RequireAuth, RequireRole } from "./components/RouteGuards";
 import { HomePage } from "./pages/Home";
 import { LoginPage } from "./pages/Login";
 import { RegisterPage } from "./pages/Register";
+import { VerifyEmailPage } from "./pages/VerifyEmail";
 import { TasksPage } from "./pages/Tasks";
 import { TasksCreatePage } from "./pages/TasksCreate";
 import { TaskDetailPage } from "./pages/TaskDetail";
@@ -20,6 +21,7 @@ import { ProfileDetailsPage } from "./pages/ProfileDetails";
 import { ProfileAvatarPage } from "./pages/ProfileAvatar";
 import { ProfilePasswordPage } from "./pages/ProfilePassword";
 import { NotFoundPage } from "./pages/NotFound";
+import { AdminCompanyVerificationsPage } from "./pages/AdminCompanyVerifications";
 
 export const router = createBrowserRouter([
   {
@@ -29,6 +31,15 @@ export const router = createBrowserRouter([
       { index: true, element: <HomePage /> },
       { path: "login", element: <LoginPage /> },
       { path: "register", element: <RegisterPage /> },
+      { path: "verify-email", element: <VerifyEmailPage /> },
+      {
+        path: "admin/company-verifications",
+        element: (
+          <RequireAdmin>
+            <AdminCompanyVerificationsPage />
+          </RequireAdmin>
+        )
+      },
       { path: "tasks", element: <TasksPage /> },
       {
         path: "tasks/new",

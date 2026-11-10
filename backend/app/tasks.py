@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from app.database import get_db
 from app.models import (
     User, Task,
-    UserRole, TaskResponseModel,
+    UserRole, VerificationStatus, TaskResponseModel,
     TaskExecution, Message )
 from app.auth import get_current_user, get_optional_user
 from app.schemas.task import (
@@ -82,6 +82,8 @@ def create_task(
 ):
     if current_user.role != UserRole.COMPANY:
         raise HTTPException(status_code=403, detail="Only companies can create tasks")
+    if current_user.verification_status != VerificationStatus.VERIFIED.value:
+        raise HTTPException(status_code=403, detail="Company verification is required to create tasks")
     
     deadline_utc = None
     if task_data.deadline:

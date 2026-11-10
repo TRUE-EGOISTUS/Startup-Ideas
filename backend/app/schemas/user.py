@@ -7,6 +7,11 @@ class UserRole(str, Enum):
     SPECIALIST = "specialist"
     COMPANY = "company"
 
+class VerificationStatus(str, Enum):
+    VERIFIED = "verified"
+    PENDING = "pending"
+    REJECTED = "rejected"
+
 class UserBase(BaseModel):
     email: EmailStr
     role: UserRole
@@ -22,9 +27,11 @@ class UserUpdate(BaseModel):
 class UserRead(UserBase):
     id: int
     is_active: bool
+    is_superuser: bool
     created_at: datetime
     updated_at: Optional[datetime]
     username: Optional[str]
+    verification_status: VerificationStatus
 
     @computed_field
     @property
@@ -111,3 +118,10 @@ class PublicUserRead(UserBase):
 
     class Config:
         from_attributes = True
+
+class AdminCompanyRead(UserRead):
+    verification_rejection_reason: Optional[str] = None
+    company_profile: Optional[CompanyProfileRead] = None
+
+class AdminUserRead(UserRead):
+    verification_rejection_reason: Optional[str] = None

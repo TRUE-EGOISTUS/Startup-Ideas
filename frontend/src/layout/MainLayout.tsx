@@ -8,7 +8,8 @@ import {
   TeamOutlined,
   UserOutlined,
   LoginOutlined,
-  MenuOutlined
+  MenuOutlined,
+  SafetyCertificateOutlined
 } from "@ant-design/icons";
 import { useAuthStore } from "../store/auth";
 
@@ -31,7 +32,10 @@ export function MainLayout() {
       { key: "tasks", icon: <CheckCircleOutlined />, label: <Link to="/tasks">Задачи</Link> },
       { key: "ideas", icon: <BulbOutlined />, label: <Link to="/ideas">Идеи</Link> },
       { key: "projects", icon: <TeamOutlined />, label: <Link to="/projects">Проекты</Link> },
-      { key: "profile", icon: <UserOutlined />, label: <Link to="/profile">Профиль</Link> }
+      { key: "profile", icon: <UserOutlined />, label: <Link to="/profile">Профиль</Link> },
+      ...(user?.is_superuser
+        ? [{ key: "admin", icon: <SafetyCertificateOutlined />, label: <Link to="/admin/company-verifications">Модерация</Link> }]
+        : [])
     ],
     []
   );

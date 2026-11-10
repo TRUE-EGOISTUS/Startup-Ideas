@@ -12,7 +12,7 @@ export function RegisterPage() {
   const onFinish = async (values: { email: string; username: string; password: string; role: "specialist" | "company" }) => {
     try {
       await register(values);
-      message.success("Регистрация успешна");
+      message.success("Регистрация создана. Проверьте почту для подтверждения.");
       navigate("/login", { replace: true, state: { from } });
     } catch {
       message.error("Не удалось зарегистрироваться");
