@@ -9,9 +9,12 @@ import {
   Divider,
   Form,
   Input,
+  Modal,
   Progress,
   Row,
+  Space,
   Tag,
+  Select,
   Typography,
   Upload,
   message,
@@ -28,6 +31,7 @@ import type { UploadProps } from "antd";
 import { api, getUserPublic } from "../lib/api";
 import { useAuthStore } from "../store/auth";
 import { PublicUser } from "../types";
+import type { Project } from "../types";
 
 type ProfileData = {
   skills?: string | null;
@@ -49,6 +53,11 @@ export function ProfilePage() {
   const [publicUser, setPublicUser] = useState<PublicUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ownedProjects, setOwnedProjects] = useState<Project[]>([]);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteProjectId, setInviteProjectId] = useState<string>();
+  const [inviteRole, setInviteRole] = useState("member");
+  const [inviting, setInviting] = useState(false);
   const [accountForm] = Form.useForm();
   const [profileForm] = Form.useForm();
   const apiBaseUrl = api.defaults.baseURL ?? "http://localhost:8000";
@@ -115,6 +124,45 @@ export function ProfilePage() {
       message.error("Не удалось сохранить профиль");
     }
   };
+
+  const loadOwnedProjects = async () => {
+    try {
+      const { data } = await api.get<Project[]>("/ideas/projects/my");
+      setOwnedProjects(data.filter((project) => project.created_by === user?.id));
+    } catch {
+      message.error("Не удалось загрузить проекты для приглашения");
+    }
+  };
+
+  const openInvite = async () => {
+    await loadOwnedProjects();
+    setInviteOpen(true);
+  };
+
+  const sendInvitation = async () => {
+    if (!userId || !inviteProjectId || !inviteRole.trim()) return;
+    setInviting(true);
+    try {
+      await api.post(`/ideas/projects/${inviteProjectId}/invite/${userId}`, null, {
+        params: { role: inviteRole.trim() }
+      });
+      message.success("Приглашение отправлено");
+      setInviteOpen(false);
+    } catch {
+      message.error("Не удалось отправить приглашение");
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const selectedInviteProject = ownedProjects.find((project) => project.id === inviteProjectId);
+  const projectRolesForInvite = publicUser?.role === "company"
+    ? selectedInviteProject?.roles_companies ?? (selectedInviteProject?.roles_specialists == null ? selectedInviteProject?.roles_needed : "")
+    : selectedInviteProject?.roles_specialists ?? (selectedInviteProject?.roles_companies == null ? selectedInviteProject?.roles_needed : "");
+  const inviteRoleOptions = Array.from(new Set([
+    ...(projectRolesForInvite || "").split(",").map((role) => role.trim()).filter(Boolean),
+    inviteRole
+  ])).map((role) => ({ value: role, label: role }));
 
   const makeUploadProps = (imageType: "avatar" | "cover"): UploadProps => ({
     showUploadList: false,
@@ -383,7 +431,12 @@ export function ProfilePage() {
               <Typography.Text type="danger">{error}</Typography.Text>
             </Card>
           ) : publicUser ? (
-            <Card title="Информация о пользователе">
+            <>
+            <Card title="Информация о пользователе" extra={
+              user && user.id !== publicUser.id ? (
+                <Button type="primary" onClick={() => void openInvite()}>Пригласить в проект</Button>
+              ) : null
+            }>
               <Descriptions bordered column={1}>
                 <Descriptions.Item label="Имя пользователя">
                   {publicUser.username || "-"}
@@ -427,6 +480,57 @@ export function ProfilePage() {
                   )}
               </Descriptions>
             </Card>
+            <Modal
+              title={`Пригласить ${publicUser.username || "пользователя"} в проект`}
+              open={inviteOpen}
+              onCancel={() => setInviteOpen(false)}
+              onOk={() => void sendInvitation()}
+              okText="Отправить приглашение"
+              cancelText="Отмена"
+              confirmLoading={inviting}
+              okButtonProps={{ disabled: !inviteProjectId || !inviteRole.trim() }}
+            >
+              {ownedProjects.length === 0 ? (
+                <Typography.Text type="secondary">У вас нет проектов, которыми вы управляете.</Typography.Text>
+              ) : (
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  <Typography.Text strong>
+                    Тип приглашаемого участника: {publicUser.role === "company" ? "Компания" : "Специалист"}
+                  </Typography.Text>
+                  <Select
+                    placeholder="Выберите проект"
+                    value={inviteProjectId}
+                    onChange={(projectId) => {
+                      setInviteProjectId(projectId);
+                      const project = ownedProjects.find((item) => item.id === projectId);
+                      const projectRoles = publicUser?.role === "company"
+                        ? project?.roles_companies ?? (project?.roles_specialists == null ? project?.roles_needed : "")
+                        : project?.roles_specialists ?? (project?.roles_companies == null ? project?.roles_needed : "");
+                      const firstRole = projectRoles?.split(",").map((role) => role.trim()).find(Boolean);
+                      setInviteRole(firstRole || "member");
+                    }}
+                    options={ownedProjects.map((project) => ({ value: project.id, label: `${project.name} (#${project.display_id})` }))}
+                    style={{ width: "100%" }}
+                  />
+                  <Typography.Text>
+                    Доступные роли для этого типа участника
+                  </Typography.Text>
+                  <Select
+                    mode="tags"
+                    maxCount={1}
+                    value={inviteRole ? [inviteRole] : []}
+                    options={inviteRoleOptions}
+                    onChange={(roles) => setInviteRole(roles[0] || "")}
+                    placeholder="Выберите роль или введите новую"
+                    style={{ width: "100%" }}
+                  />
+                  <Typography.Text type="secondary">
+                    Если нужной роли нет в списке, введите ее и подтвердите Enter. Она добавится только в раздел ролей {publicUser.role === "company" ? "компаний" : "специалистов"}.
+                  </Typography.Text>
+                </Space>
+              )}
+            </Modal>
+            </>
           ) : (
             <Card>
               <Typography.Text>Пользователь не найден</Typography.Text>

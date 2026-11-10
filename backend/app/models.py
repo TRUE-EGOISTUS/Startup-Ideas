@@ -11,6 +11,11 @@ class UserRole(str, enum.Enum):
     SPECIALIST = "specialist"
     COMPANY = "company"
 
+class VerificationStatus(str, enum.Enum):
+    VERIFIED = "verified"
+    PENDING = "pending"
+    REJECTED = "rejected"
+
 class User(Base):
     __tablename__ = "users"
 
@@ -24,6 +29,8 @@ class User(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))   # исправлено
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.SPECIALIST)
+    verification_status = Column(String(20), nullable=False, default=VerificationStatus.VERIFIED.value)
+    verification_rejection_reason = Column(Text, nullable=True)
     username = Column(String(100), unique=True, nullable=False)
 
     # связи
@@ -161,6 +168,8 @@ class Idea(Base):
     short_description = Column(Text, nullable=False)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     roles_needed = Column(Text, nullable=True)
+    roles_specialists = Column(Text, nullable=True)
+    roles_companies = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
     created_at = Column(DateTime, default= lambda: datetime.now(timezone.utc))
     status = Column(String(20), default="open", index=True)
@@ -187,6 +196,10 @@ class IdeaResponse(Base):
     idea = relationship("Idea", back_populates="responses")
     user = relationship("User", back_populates="idea_responses")
 
+    @property
+    def user_nickname(self):
+        return self.user.username if self.user else None
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -195,6 +208,8 @@ class Project(Base):
     name = Column(String(200), nullable=False )
     description = Column(Text, nullable=True)
     roles_needed = Column(Text, nullable=True)
+    roles_specialists = Column(Text, nullable=True)
+    roles_companies = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
     idea_id = Column(UUID(as_uuid=True), ForeignKey("ideas.id"), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -222,6 +237,14 @@ class ProjectMember(Base):
     project = relationship("Project", back_populates="members")
     user = relationship("User", back_populates="projects")
 
+    @property
+    def username(self):
+        return self.user.username if self.user else None
+
+    @property
+    def user_role(self):
+        return self.user.role.value if self.user and hasattr(self.user.role, "value") else self.user.role if self.user else None
+
 class ProjectInvite(Base):
     __tablename__ = "project_invites"
 
@@ -237,12 +260,21 @@ class ProjectInvite(Base):
     inviter = relationship("User", foreign_keys=[invited_by])
     invitee = relationship("User", foreign_keys=[user_id])
 
+    @property
+    def project_name(self):
+        return self.project.name if self.project else None
+
+    @property
+    def inviter_username(self):
+        return self.inviter.username if self.inviter else None
+
 class ProjectMessage(Base):
     __tablename__ = "project_messages"
     id = Column(Integer, primary_key=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
+    is_announcement = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     project = relationship("Project", back_populates="messages")

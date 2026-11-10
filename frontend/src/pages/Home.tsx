@@ -59,12 +59,16 @@ export function HomePage() {
             джунов ещё до найма, а стартаперы — партнёров с проверенными скиллами.
           </p>
           <div className="home-hero-actions">
-            <Button type="primary" className="home-hero-button">
-              <Link to="/ideas">Найти идею</Link>
-            </Button>
-            <Button type="default" className="home-hero-button_secondary">
-              <Link to="/projects">Присоединиться к проекту</Link>
-            </Button>
+            <Link to="/ideas">
+              <Button type="primary" className="home-hero-button">
+                Найти идею или проект
+              </Button>
+            </Link>
+            <Link to="/tasks">
+              <Button type="default" className="home-hero-button_secondary">
+                Найти задачу
+              </Button>
+            </Link>
           </div>
         </div>
         <div className="home-banner" aria-hidden="true">

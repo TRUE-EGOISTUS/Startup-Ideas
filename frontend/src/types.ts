@@ -49,6 +49,8 @@ export type Idea = {
   author_id: number;
   author_email?: string | null;
   roles_needed?: string | null;
+  roles_specialists?: string | null;
+  roles_companies?: string | null;
   tags?: string | null;
   status: string;
   created_at: string;
@@ -60,6 +62,7 @@ export type IdeaResponse = {
   id: number;
   idea_id: string;
   user_id: number;
+  user_nickname?: string | null;
   role: string;
   message?: string | null;
   status: string;
@@ -72,6 +75,8 @@ export type Project = {
   name: string;
   description?: string | null;
   roles_needed?: string | null;
+  roles_specialists?: string | null;
+  roles_companies?: string | null;
   tags?: string | null;
   idea_id?: string | null;
   created_by: number;
@@ -83,8 +88,21 @@ export type ProjectMember = {
   id: number;
   project_id: string;
   user_id: number;
+  username?: string | null;
+  user_role?: "specialist" | "company" | null;
   role?: string | null;
   joined_at: string;
+};
+
+export type ProjectInvite = {
+  id: number;
+  project_id: string;
+  user_id: number;
+  role?: string | null;
+  status: string;
+  created_at: string;
+  project_name?: string | null;
+  inviter_username?: string | null;
 };
 
 export type Message = {

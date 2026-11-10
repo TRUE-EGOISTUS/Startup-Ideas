@@ -7,12 +7,16 @@ class IdeaCreate(BaseModel):
     title: str
     short_description: str
     roles_needed: Optional[str] = None   # JSON строка
+    roles_specialists: Optional[str] = None
+    roles_companies: Optional[str] = None
     tags: Optional[str] = None
 
 class IdeaUpdate(BaseModel):
     title: Optional[str] = None
     short_description: Optional[str] = None
     roles_needed: Optional[str] = None
+    roles_specialists: Optional[str] = None
+    roles_companies: Optional[str] = None
     tags: Optional[str] = None
 
 class IdeaResponse(BaseModel):
@@ -23,6 +27,8 @@ class IdeaResponse(BaseModel):
     author_id: int
     author_email: Optional[str] = None
     roles_needed: Optional[str]
+    roles_specialists: Optional[str] = None
+    roles_companies: Optional[str] = None
     tags: Optional[str]
     status: str
     created_at: datetime
@@ -48,6 +54,7 @@ class IdeaResponseOut(BaseModel):
     id: int
     idea_id: UUID
     user_id: int
+    user_nickname: Optional[str] = None
     role: str
     message: Optional[str]
     status: str
@@ -71,10 +78,12 @@ class ProjectOut(BaseModel):
     id: UUID
     display_id: int
     name: str
-    description: Optional[str]
+    description: Optional[str] = None
     roles_needed: Optional[str] = None
+    roles_specialists: Optional[str] = None
+    roles_companies: Optional[str] = None
     tags: Optional[str] = None
-    idea_id: Optional[UUID]
+    idea_id: Optional[UUID] = None
     created_by: int
     creator_email: Optional[str] = None
     created_at: datetime
@@ -92,6 +101,8 @@ class ProjectMemberOut(BaseModel):
     id: int
     project_id: UUID
     user_id: int
+    username: Optional[str] = None
+    user_role: Optional[str] = None
     role: Optional[str]
     joined_at: datetime
 
@@ -116,6 +127,8 @@ class ProjectInviteOut(BaseModel):
     role: Optional[str]
     status: str
     created_at: datetime
+    project_name: Optional[str] = None
+    inviter_username: Optional[str] = None
 
     @computed_field
     @property

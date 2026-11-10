@@ -5,10 +5,12 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt, ExpiredSignatureError
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from email.message import EmailMessage
+import smtplib
 
 
 from app.schemas.user import UserCreate, UserRead
-from app.models import User, UserRole, SpecialistProfile, CompanyProfile
+from app.models import User, UserRole, VerificationStatus, SpecialistProfile, CompanyProfile
 from app.database import get_db
 from app.config import settings
 
@@ -46,6 +48,34 @@ def create_refresh_token(data: dict, expires_delta: timedelta = None) -> str:
         expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp":expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def create_email_verification_token(email: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    return jwt.encode(
+        {"sub": email, "type": "email_verification", "exp": expire},
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+def send_verification_email(email: str, token: str) -> None:
+    if not all((settings.SMTP_HOST, settings.SMTP_FROM_EMAIL)):
+        raise RuntimeError("Email verification is not configured")
+
+    message = EmailMessage()
+    message["Subject"] = "Подтверждение электронной почты"
+    message["From"] = settings.SMTP_FROM_EMAIL
+    message["To"] = email
+    message.set_content(
+        f"Подтвердите электронную почту по ссылке:\n"
+        f"{settings.FRONTEND_URL}/verify-email?token={token}\n\n"
+        "Ссылка действительна 24 часа."
+    )
+
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
+        if settings.SMTP_USER and settings.SMTP_PASSWORD:
+            smtp.starttls()
+            smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        smtp.send_message(message)
 
 def get_current_user_from_token(token: str, db: Session) -> User:
     credentials_exception = HTTPException(status_code=401, detail="Could not validate credentials")
@@ -112,7 +142,12 @@ def register(
         email=user_data.email,
         username=user_data.username,
         hashed_password=hashed,
-        role=user_data.role
+        role=user_data.role,
+        verification_status=(
+            VerificationStatus.PENDING.value
+            if user_data.role == UserRole.COMPANY
+            else VerificationStatus.VERIFIED.value
+        ),
     )
     db.add(new_user)
     try:
@@ -128,13 +163,43 @@ def register(
     db.add(profile)
     
     try:
+        verification_token = create_email_verification_token(new_user.email)
+        send_verification_email(new_user.email, verification_token)
         db.commit()
+    except RuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=str(exc))
+    except (OSError, smtplib.SMTPException):
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Could not send verification email")
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Сould not complete registration, please try again")
     
     db.refresh(new_user)
     return new_user
+
+@router.get("/verify-email")
+def verify_email(token: str, db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email = payload.get("sub")
+        if email is None or payload.get("type") != "email_verification":
+            raise HTTPException(status_code=400, detail="Invalid verification token")
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Verification link expired")
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid verification token")
+
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_verified:
+        return {"message": "Email already verified"}
+
+    user.is_verified = True
+    db.commit()
+    return {"message": "Email verified successfully"}
 
 @router.post("/login")
 def login(
@@ -152,6 +217,8 @@ def login(
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is disabled")
+    if not user.is_verified:
+        raise HTTPException(status_code=403, detail="Please verify your email before logging in")
     
     token_data = {"sub": user.email, "token_version": user.token_version}
     access_token = create_access_token(data=token_data)

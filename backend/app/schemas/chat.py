@@ -32,6 +32,7 @@ class ProjectMessageOut(BaseModel):
     project_id: UUID
     user_id: int
     text: str
+    is_announcement: bool = False
     created_at: datetime
     sender_name: Optional[str] = None
     sender_avatar_url: Optional[str] = None

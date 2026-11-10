@@ -5,6 +5,8 @@ export type User = {
   id: number;
   email: string;
   role: "specialist" | "company";
+  verification_status: "verified" | "pending" | "rejected";
+  is_superuser: boolean;
   username?: string | null;
 };
 

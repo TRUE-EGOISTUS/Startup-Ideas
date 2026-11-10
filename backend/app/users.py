@@ -1,17 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
-from app.models import User, UserRole
+from app.models import User, UserRole, VerificationStatus, CompanyProfile
 from app.auth import get_current_user, verify_password, get_password_hash
 from app.schemas.user import (
     UserRead, UserUpdate, ChangePasswordRequest,
     SpecialistProfileRead, CompanyProfileRead, 
     SpecialistProfileUpdate, CompanyProfileUpdate,
-    PublicUserRead)
+    PublicUserRead, AdminCompanyRead, AdminUserRead)
 import os
 import uuid
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+def require_superuser(current_user: User = Depends(get_current_user)) -> User:
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return current_user
 
 UPLOAD_DIR = "static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -28,6 +33,133 @@ def remove_uploaded_file(image_url: str | None) -> None:
 def get_me(current_user: User = Depends(get_current_user)):
     """Получить информацию о текущем пользователе"""
     return current_user
+
+@router.get("/admin/company-verifications", response_model=list[AdminCompanyRead])
+def list_company_verifications(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+    status: str = Query(VerificationStatus.PENDING.value, pattern="^(pending|verified|rejected)$"),
+    search: str | None = Query(None, max_length=100),
+):
+    query = (
+        db.query(User)
+        .outerjoin(CompanyProfile, CompanyProfile.user_id == User.id)
+        .options(
+            selectinload(User.specialist_profile),
+            selectinload(User.company_profile),
+        )
+        .filter(
+            User.role == UserRole.COMPANY,
+        )
+    )
+    query = query.filter(User.verification_status == status)
+    if search:
+        search_pattern = f"%{search.strip()}%"
+        query = query.filter(
+            (User.email.ilike(search_pattern))
+            | (User.username.ilike(search_pattern))
+            | (CompanyProfile.company_name.ilike(search_pattern))
+        )
+    return query.order_by(User.created_at.asc()).all()
+
+@router.get("/admin/accounts", response_model=list[AdminUserRead])
+def list_admin_accounts(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_superuser),
+    search: str | None = Query(None, max_length=100),
+):
+    query = db.query(User).filter(User.id != admin.id)
+    if search:
+        search_pattern = f"%{search.strip()}%"
+        query = query.filter((User.email.ilike(search_pattern)) | (User.username.ilike(search_pattern)))
+    return query.order_by(User.created_at.desc()).limit(200).all()
+
+@router.post("/admin/company-verifications/{user_id}/approve", response_model=UserRead)
+def approve_company_verification(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+):
+    user = db.query(User).filter(
+        User.id == user_id,
+        User.role == UserRole.COMPANY,
+    ).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    user.verification_status = VerificationStatus.VERIFIED.value
+    user.verification_rejection_reason = None
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.post("/admin/company-verifications/{user_id}/reject", response_model=UserRead)
+def reject_company_verification(
+    user_id: int,
+    reason: str = Query(..., min_length=3, max_length=1000),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+):
+    user = db.query(User).filter(
+        User.id == user_id,
+        User.role == UserRole.COMPANY,
+    ).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    user.verification_status = VerificationStatus.REJECTED.value
+    user.verification_rejection_reason = reason.strip()
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.post("/admin/company-verifications/{user_id}/resubmit", response_model=AdminCompanyRead)
+def resubmit_company_verification(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+):
+    user = db.query(User).filter(
+        User.id == user_id,
+        User.role == UserRole.COMPANY,
+        User.verification_status == VerificationStatus.REJECTED.value,
+    ).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Rejected company not found")
+    user.verification_status = VerificationStatus.PENDING.value
+    user.verification_rejection_reason = None
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.post("/admin/accounts/{user_id}/block", response_model=AdminUserRead)
+def block_account(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_superuser:
+        raise HTTPException(status_code=400, detail="Administrator accounts cannot be blocked")
+    user.is_active = False
+    user.token_version += 1
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.post("/admin/accounts/{user_id}/unblock", response_model=AdminUserRead)
+def unblock_account(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+    return user
 
 @router.put("/me", response_model=UserRead)
 def update_me(

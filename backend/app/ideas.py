@@ -56,6 +56,26 @@ def _normalize_roles(raw: str) -> str:
             seen[key] = r
     return ", ".join(seen.values())
 
+def _combined_roles(*role_sets: Optional[str]) -> str:
+    return _normalize_roles(", ".join(value for value in role_sets if value))
+
+def _validate_role_for_user(project: Project, user: User, role: str) -> None:
+    target_roles = project.roles_companies if user.role == UserRole.COMPANY else project.roles_specialists
+    opposite_roles = project.roles_specialists if user.role == UserRole.COMPANY else project.roles_companies
+    if target_roles is None and opposite_roles is None:
+        return
+    target = {item.strip().casefold() for item in (target_roles or "").split(",") if item.strip()}
+    opposite = {item.strip().casefold() for item in (opposite_roles or "").split(",") if item.strip()}
+    if role.casefold() in opposite:
+        account_type = "компании" if user.role == UserRole.COMPANY else "специалиста"
+        raise HTTPException(status_code=400, detail=f"This role is only available for the other account type, not for a {account_type}")
+
+def _remove_role(raw: Optional[str], role: str) -> str:
+    return _normalize_roles(", ".join(
+        item.strip() for item in (raw or "").split(",")
+        if item.strip().casefold() != role.strip().casefold()
+    ))
+
 # ---------- Идеи ----------
 @router.post("/", response_model=IdeaResponseSchema)
 def create_idea(
@@ -67,7 +87,9 @@ def create_idea(
         title=idea_data.title,
         short_description=idea_data.short_description,
         author_id=current_user.id,
-        roles_needed=_normalize_roles(idea_data.roles_needed),
+        roles_needed=_combined_roles(idea_data.roles_needed, idea_data.roles_specialists, idea_data.roles_companies),
+        roles_specialists=_normalize_roles(idea_data.roles_specialists or ""),
+        roles_companies=_normalize_roles(idea_data.roles_companies or ""),
         tags=idea_data.tags
     )
     idea.display_id = (db.query(func.max(Idea.display_id)).scalar() or 0) + 1
@@ -136,6 +158,28 @@ def get_my_idea_response(
         query = query.filter(IdeaResponse.status == status)
     return query.order_by(IdeaResponse.created_at.desc()).all()
 
+# ---------- Проекты ----------
+@router.get("/projects", response_model=List[ProjectOut])
+def get_all_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    projects = db.query(Project).options(selectinload(Project.creator)).order_by(Project.created_at.desc()).all()
+    return projects
+
+@router.get("/projects/my", response_model=List[ProjectOut])
+def get_my_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    member_projects = db.query(ProjectMember).filter(
+        ProjectMember.user_id == current_user.id
+    ).all()
+    project_ids = [member_project.project_id for member_project in member_projects]
+    if not project_ids:
+        return []
+    return db.query(Project).options(selectinload(Project.creator)).filter(Project.id.in_(project_ids)).all()
+
 @router.get("/{idea_id}", response_model=IdeaResponseSchema)
 def get_idea(
     idea_id: UUID,
@@ -165,7 +209,11 @@ def update_idea(
     for field, value in idea_data.model_dump(exclude_unset=True).items():
         if field == "roles_needed":
             value = _normalize_roles(value)
+        elif field in {"roles_specialists", "roles_companies"}:
+            value = _normalize_roles(value)
         setattr(idea, field, value)
+    if "roles_specialists" in idea_data.model_dump(exclude_unset=True) or "roles_companies" in idea_data.model_dump(exclude_unset=True):
+        idea.roles_needed = _combined_roles(idea.roles_specialists, idea.roles_companies)
     db.commit()
     db.refresh(idea)
     item = IdeaResponseSchema.model_validate(idea)
@@ -216,7 +264,9 @@ def update_idea_status(
 @router.put("/{idea_id}/roles")
 def update_idea_roles(
     idea_id: UUID,
-    roles_needed: str,
+    roles_needed: Optional[str] = None,
+    roles_specialists: Optional[str] = None,
+    roles_companies: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -229,10 +279,42 @@ def update_idea_roles(
         raise HTTPException(status_code=404, detail="Idea not found")
     if idea.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the author")
-    normalized = _normalize_roles(roles_needed)
-    idea.roles_needed = normalized
+    if roles_specialists is not None:
+        idea.roles_specialists = _normalize_roles(roles_specialists)
+    if roles_companies is not None:
+        idea.roles_companies = _normalize_roles(roles_companies)
+    if roles_needed is not None and roles_specialists is None and roles_companies is None:
+        idea.roles_needed = _normalize_roles(roles_needed)
+    else:
+        idea.roles_needed = _combined_roles(idea.roles_specialists, idea.roles_companies, idea.roles_needed)
     db.commit()
-    return {"message": "Roles updated", "roles_needed": normalized}
+    return {
+        "message": "Roles updated",
+        "roles_needed": idea.roles_needed,
+        "roles_specialists": idea.roles_specialists,
+        "roles_companies": idea.roles_companies,
+    }
+
+@router.delete("/{idea_id}/roles")
+def delete_idea_role(
+    idea_id: UUID,
+    role: str = Query(..., min_length=1, max_length=100),
+    account_type: str = Query(..., pattern="^(specialist|company)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    idea = db.query(Idea).filter(Idea.id == idea_id).first()
+    if not idea:
+        raise HTTPException(status_code=404, detail="Idea not found")
+    if idea.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not the author")
+    if account_type == "specialist":
+        idea.roles_specialists = _remove_role(idea.roles_specialists, role)
+    else:
+        idea.roles_companies = _remove_role(idea.roles_companies, role)
+    idea.roles_needed = _combined_roles(idea.roles_specialists, idea.roles_companies)
+    db.commit()
+    return {"message": "Role deleted", "roles_needed": idea.roles_needed}
 
 # ---------- Отклики на идеи ----------
 @router.post("/{idea_id}/interest", response_model=IdeaResponseOut)
@@ -303,7 +385,7 @@ def get_idea_responses(
         raise HTTPException(status_code=403, detail="Only the author can view responses")
     if status not in ("pending", "accepted", None):
         raise HTTPException(status_code=400, detail="Invalid status filter")
-    query = db.query(IdeaResponse).filter(IdeaResponse.idea_id == idea_id)
+    query = db.query(IdeaResponse).options(selectinload(IdeaResponse.user)).filter(IdeaResponse.idea_id == idea_id)
     if status:
         query = query.filter(IdeaResponse.status == status)
     return query.all()
@@ -425,6 +507,8 @@ def convert_idea_to_project(
         name=idea.title,
         description=idea.short_description,
         roles_needed=idea.roles_needed,
+        roles_specialists=idea.roles_specialists,
+        roles_companies=idea.roles_companies,
         tags=idea.tags,
         created_by=current_user.id,
         display_id=(db.query(func.max(Project.display_id)).scalar() or 0) + 1,
@@ -441,19 +525,6 @@ def convert_idea_to_project(
     return project
 
 # ---------- Проекты ----------
-@router.get("/projects/my", response_model=List[ProjectOut])
-def get_my_projects(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    member_projects = db.query(ProjectMember).filter(
-        ProjectMember.user_id == current_user.id
-    ).all()
-    project_ids = [member_project.project_id for member_project in member_projects]
-    if not project_ids:
-        return []
-    return db.query(Project).filter(Project.id.in_(project_ids)).all()
-
 @router.get("/projects/{project_id}", response_model=ProjectOut)
 def get_project(
     project_id: UUID,
@@ -463,12 +534,6 @@ def get_project(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    member = db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="You are not a member of this project")
     return project
 
 @router.get("/projects/{project_id}/members", response_model=List[ProjectMemberOut])
@@ -486,8 +551,69 @@ def get_project_members(
     ).first()
     if not member:
         raise HTTPException(status_code=403, detail="Not a member")
-    members = db.query(ProjectMember).filter(ProjectMember.project_id == project_id).all()
-    return members
+    return db.query(ProjectMember).options(
+        selectinload(ProjectMember.user)
+    ).filter(ProjectMember.project_id == project_id).all()
+
+@router.patch("/projects/{project_id}/members/{user_id}/role")
+def update_member_role(
+    project_id: UUID,
+    user_id: int,
+    role: str = Query(..., min_length=1, max_length=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the project creator can change roles")
+    if user_id == project.created_by:
+        raise HTTPException(status_code=400, detail="The project creator role cannot be changed")
+    member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == user_id
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="User is not a member")
+    normalized_role = role.strip()
+    if not normalized_role:
+        raise HTTPException(status_code=400, detail="Role cannot be empty")
+    member_user = db.query(User).filter(User.id == user_id).first()
+    if not member_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    _validate_role_for_user(project, member_user, normalized_role)
+    member.role = normalized_role
+    db.commit()
+    return {"message": "Member role updated", "role": member.role}
+
+@router.delete("/projects/{project_id}/roles")
+def delete_project_role(
+    project_id: UUID,
+    role: str = Query(..., min_length=1, max_length=100),
+    account_type: str = Query(..., pattern="^(specialist|company)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the project creator can delete roles")
+    assigned = db.query(ProjectMember).join(User).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.role.ilike(role.strip()),
+        User.role == (UserRole.COMPANY if account_type == "company" else UserRole.SPECIALIST)
+    ).first()
+    if assigned:
+        raise HTTPException(status_code=400, detail="Role is assigned to a project member")
+    if account_type == "specialist":
+        project.roles_specialists = _remove_role(project.roles_specialists, role)
+    else:
+        project.roles_companies = _remove_role(project.roles_companies, role)
+    project.roles_needed = _combined_roles(project.roles_specialists, project.roles_companies)
+    db.commit()
+    return {"message": "Role deleted", "roles_needed": project.roles_needed}
 
 @router.post("/projects/{project_id}/invite/{user_id}")
 def invite_to_project(
@@ -505,6 +631,10 @@ def invite_to_project(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    normalized_role = (role or "member").strip()
+    if not normalized_role:
+        raise HTTPException(status_code=400, detail="Role cannot be empty")
+    _validate_role_for_user(project, user, normalized_role)
 
     existing_membership = db.query(ProjectMember).filter(ProjectMember.user_id == user_id).first()
     if existing_membership:
@@ -528,9 +658,14 @@ def invite_to_project(
         project_id=project_id, 
         user_id=user_id, 
         invited_by=current_user.id,
-        role=role,
+        role=normalized_role,
         status="pending"
     )
+    if user.role == UserRole.COMPANY:
+        project.roles_companies = _combined_roles(project.roles_companies, normalized_role)
+    else:
+        project.roles_specialists = _combined_roles(project.roles_specialists, normalized_role)
+    project.roles_needed = _combined_roles(project.roles_specialists, project.roles_companies, project.roles_needed)
     db.add(invite)
     db.commit()
     db.refresh(invite)
@@ -571,6 +706,19 @@ def accept_project_invite(
     invite.status = "accepted"
     db.commit()
     return {"message": "Invitation accepted and you are now a member of the project"}
+
+@router.get("/projects/invitations/my", response_model=List[ProjectInviteOut])
+def get_my_project_invitations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return db.query(ProjectInvite).options(
+        selectinload(ProjectInvite.project),
+        selectinload(ProjectInvite.inviter)
+    ).filter(
+        ProjectInvite.user_id == current_user.id,
+        ProjectInvite.status == "pending"
+    ).order_by(ProjectInvite.created_at.desc()).all()
 
 @router.post("/projects/{project_id}/invite/{invite_id}/reject")
 def reject_project_invite(
