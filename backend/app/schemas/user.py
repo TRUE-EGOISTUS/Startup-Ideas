@@ -32,6 +32,7 @@ class UserRead(UserBase):
     updated_at: Optional[datetime]
     username: Optional[str]
     verification_status: VerificationStatus
+    can_moderate_companies: bool
 
     @computed_field
     @property

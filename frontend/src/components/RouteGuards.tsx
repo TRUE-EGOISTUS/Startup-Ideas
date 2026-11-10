@@ -61,7 +61,7 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (!user.is_superuser) {
+  if (!user.is_superuser && !user.can_moderate_companies) {
     return <Navigate to="/" replace />;
   }
 

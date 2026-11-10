@@ -33,11 +33,11 @@ export function MainLayout() {
       { key: "ideas", icon: <BulbOutlined />, label: <Link to="/ideas">Идеи</Link> },
       { key: "projects", icon: <TeamOutlined />, label: <Link to="/projects">Проекты</Link> },
       { key: "profile", icon: <UserOutlined />, label: <Link to="/profile">Профиль</Link> },
-      ...(user?.is_superuser
+      ...(user?.is_superuser || user?.can_moderate_companies
         ? [{ key: "admin", icon: <SafetyCertificateOutlined />, label: <Link to="/admin/company-verifications">Модерация</Link> }]
         : [])
     ],
-    []
+    [user?.is_superuser, user?.can_moderate_companies]
   );
 
   const handleLogout = async () => {

@@ -22,6 +22,7 @@ import { ProfileAvatarPage } from "./pages/ProfileAvatar";
 import { ProfilePasswordPage } from "./pages/ProfilePassword";
 import { NotFoundPage } from "./pages/NotFound";
 import { AdminCompanyVerificationsPage } from "./pages/AdminCompanyVerifications";
+import { AcceptModeratorInvitationPage } from "./pages/AcceptModeratorInvitation";
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
       { path: "login", element: <LoginPage /> },
       { path: "register", element: <RegisterPage /> },
       { path: "verify-email", element: <VerifyEmailPage /> },
+      { path: "accept-moderator-invitation", element: <AcceptModeratorInvitationPage /> },
       {
         path: "admin/company-verifications",
         element: (

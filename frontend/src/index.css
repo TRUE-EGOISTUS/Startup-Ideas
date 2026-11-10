@@ -118,6 +118,51 @@ a {
   color: var(--app-ink);
 }
 
+.admin-moderator-card .ant-card-head-title {
+  color: var(--app-ink) !important;
+}
+
+.admin-moderator-card .ant-tabs-tab-btn {
+  color: var(--app-ink) !important;
+}
+
+.admin-moderator-card .ant-tabs-tab-active .ant-tabs-tab-btn,
+.admin-moderator-card .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: var(--app-accent) !important;
+}
+
+.admin-moderator-controls {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.admin-moderator-controls .ant-input,
+.admin-moderator-controls .ant-select-selector,
+.admin-moderator-controls .ant-btn {
+  height: 40px;
+}
+
+.admin-moderator-controls .ant-input {
+  line-height: 38px;
+}
+
+.admin-moderator-controls .ant-select-single .ant-select-selector {
+  display: flex;
+  align-items: center;
+}
+
+.admin-moderator-controls .ant-select-single .ant-select-selection-item,
+.admin-moderator-controls .ant-select-single .ant-select-selection-placeholder {
+  line-height: 38px !important;
+}
+
+.admin-moderator-controls .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .ant-typography a,
 .ant-card a,
 .ant-table a,

@@ -7,6 +7,7 @@ export type User = {
   role: "specialist" | "company";
   verification_status: "verified" | "pending" | "rejected";
   is_superuser: boolean;
+  can_moderate_companies: boolean;
   username?: string | null;
 };
 
