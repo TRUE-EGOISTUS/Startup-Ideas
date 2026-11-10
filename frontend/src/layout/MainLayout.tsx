@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Layout, Menu, Button, Typography, Space, Drawer } from "antd";
+import { Alert, Layout, Menu, Button, Typography, Space, Drawer } from "antd";
 import {
   HomeOutlined,
   CheckCircleOutlined,
@@ -119,6 +119,24 @@ export function MainLayout() {
       </Drawer>
       <Content className="app-content">
         <div className={`app-container ${location.pathname.includes("/chat") ? "app-container--chat" : ""}`}>
+          {user?.role === "company" && user.verification_status === "pending" && (
+            <Alert
+              className="mb-6"
+              type="warning"
+              showIcon
+              message="Профиль компании ожидает проверки"
+              description="После подтверждения модератором станут доступны создание задач и приглашение специалистов."
+            />
+          )}
+          {user?.role === "company" && user.verification_status === "rejected" && (
+            <Alert
+              className="mb-6"
+              type="error"
+              showIcon
+              message="Профиль компании отклонен"
+              description={user.verification_rejection_reason || "Проверьте профиль и дождитесь повторной проверки."}
+            />
+          )}
           <Outlet />
         </div>
       </Content>

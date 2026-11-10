@@ -8,6 +8,7 @@ export type User = {
   verification_status: "verified" | "pending" | "rejected";
   is_superuser: boolean;
   can_moderate_companies: boolean;
+  verification_rejection_reason?: string | null;
   username?: string | null;
 };
 

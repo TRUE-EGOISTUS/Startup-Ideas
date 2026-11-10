@@ -84,7 +84,7 @@ export function TasksPage() {
     <div className="space-y-6">
       <div className="page-toolbar">
         <Typography.Title level={2} className="page-title">Задачи</Typography.Title>
-        {user?.role === "company" && (
+        {user?.role === "company" && user.verification_status === "verified" && (
           <Button type="primary">
             <Link to="/tasks/new">Создать задачу</Link>
           </Button>
