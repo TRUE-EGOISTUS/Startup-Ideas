@@ -270,7 +270,9 @@ export function AdminCompanyVerificationsPage() {
 
   return (
     <>
-      <Typography.Title level={2}>Панель администратора</Typography.Title>
+      <Typography.Title level={2} style={{ color: "#fff" }}>
+        Панель администратора
+      </Typography.Title>
       <Tabs
         items={[
           { key: "companies", label: "Компании", children: companiesTab },
