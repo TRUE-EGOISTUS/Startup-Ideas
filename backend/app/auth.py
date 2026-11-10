@@ -77,6 +77,25 @@ def send_verification_email(email: str, token: str) -> None:
             smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
         smtp.send_message(message)
 
+def send_moderator_invitation_email(email: str, token: str) -> None:
+    if not all((settings.SMTP_HOST, settings.SMTP_FROM_EMAIL)):
+        raise RuntimeError("Email delivery is not configured")
+
+    message = EmailMessage()
+    message["Subject"] = "Приглашение в команду модерации"
+    message["From"] = settings.SMTP_FROM_EMAIL
+    message["To"] = email
+    message.set_content(
+        f"Примите приглашение по ссылке:\n"
+        f"{settings.FRONTEND_URL}/accept-moderator-invitation?token={token}\n\n"
+        "Ссылка действительна 2 дня."
+    )
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
+        if settings.SMTP_USER and settings.SMTP_PASSWORD:
+            smtp.starttls()
+            smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        smtp.send_message(message)
+
 def get_current_user_from_token(token: str, db: Session) -> User:
     credentials_exception = HTTPException(status_code=401, detail="Could not validate credentials")
     try:

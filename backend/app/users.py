@@ -1,22 +1,225 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from pydantic import EmailStr
 from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
-from app.models import User, UserRole, VerificationStatus, CompanyProfile
+from app.models import User, UserRole, VerificationStatus, CompanyProfile, ModeratorInvitation
 from app.auth import get_current_user, verify_password, get_password_hash
 from app.schemas.user import (
     UserRead, UserUpdate, ChangePasswordRequest,
     SpecialistProfileRead, CompanyProfileRead, 
     SpecialistProfileUpdate, CompanyProfileUpdate,
     PublicUserRead, AdminCompanyRead, AdminUserRead)
+from app.auth import send_moderator_invitation_email
+from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 import os
 import uuid
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 def require_superuser(current_user: User = Depends(get_current_user)) -> User:
-    if not current_user.is_superuser:
+    if not (current_user.is_superuser or current_user.can_moderate_companies):
         raise HTTPException(status_code=403, detail="Administrator access required")
     return current_user
+
+def require_superuser_only(current_user: User = Depends(get_current_user)) -> User:
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Superuser access required")
+    return current_user
+
+def _invitation_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+@router.post("/admin/moderator-invitations")
+def create_moderator_invitation(
+    email: EmailStr,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser_only),
+):
+    normalized_email = email.strip().lower()
+    existing = db.query(User).filter(User.email == normalized_email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="This email already belongs to a registered user")
+
+    token = secrets.token_urlsafe(32)
+    invitation = ModeratorInvitation(
+        email=normalized_email,
+        token_hash=_invitation_hash(token),
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=2),
+        created_by_id=_.id,
+    )
+    db.add(invitation)
+    db.commit()
+    try:
+        send_moderator_invitation_email(normalized_email, token)
+    except (RuntimeError, OSError):
+        db.delete(invitation)
+        db.commit()
+        raise HTTPException(status_code=503, detail="Could not send moderator invitation")
+    return {"message": "Invitation sent"}
+
+@router.get("/admin/moderator-candidates")
+def list_moderator_candidates(
+    search: str | None = Query(None, max_length=100),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser_only),
+):
+    query = db.query(User).filter(
+        User.role == UserRole.SPECIALIST,
+        User.is_active.is_(True),
+        User.is_verified.is_(True),
+        User.is_superuser.is_(False),
+        User.can_moderate_companies.is_(False),
+    )
+    if search:
+        pattern = f"%{search.strip()}%"
+        query = query.filter((User.email.ilike(pattern)) | (User.username.ilike(pattern)))
+    return query.order_by(User.username.asc()).limit(100).all()
+
+@router.post("/admin/moderators/{user_id}/grant")
+def grant_moderator_access(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser_only),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role != UserRole.SPECIALIST:
+        raise HTTPException(status_code=400, detail="Only specialists can become moderators")
+    if not user.is_active or not user.is_verified:
+        raise HTTPException(status_code=400, detail="User must be active and have a verified email")
+    if user.is_superuser:
+        raise HTTPException(status_code=400, detail="Superuser does not need moderator access")
+    user.can_moderate_companies = True
+    db.commit()
+    return {"message": "Moderator access granted"}
+
+@router.get("/admin/moderators")
+def list_moderators(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+):
+    moderators = db.query(User).filter(User.can_moderate_companies.is_(True)).order_by(User.created_at.desc()).all()
+    invitations = db.query(ModeratorInvitation).order_by(ModeratorInvitation.id.desc()).all()
+    return {
+        "moderators": [
+            {
+                "id": moderator.id,
+                "email": moderator.email,
+                "username": moderator.username,
+                "is_active": moderator.is_active,
+                "created_at": moderator.created_at,
+            }
+            for moderator in moderators
+        ],
+        "invitations": [
+            {
+                "id": invitation.id,
+                "email": invitation.email,
+                "expires_at": invitation.expires_at,
+                "accepted_at": invitation.accepted_at,
+                "expired": invitation.expires_at <= datetime.now(timezone.utc).replace(tzinfo=None),
+            }
+            for invitation in invitations
+            if invitation.accepted_at is None
+        ],
+    }
+
+@router.post("/admin/moderator-invitations/{invitation_id}/resend")
+def resend_moderator_invitation(
+    invitation_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_superuser_only),
+):
+    invitation = db.query(ModeratorInvitation).filter(
+        ModeratorInvitation.id == invitation_id,
+        ModeratorInvitation.accepted_at.is_(None),
+    ).first()
+    if invitation is None:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    token = secrets.token_urlsafe(32)
+    invitation.token_hash = _invitation_hash(token)
+    invitation.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=2)
+    try:
+        send_moderator_invitation_email(invitation.email, token)
+        db.commit()
+    except (RuntimeError, OSError):
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Could not send moderator invitation")
+    return {"message": "Invitation resent"}
+
+@router.delete("/admin/moderator-invitations/{invitation_id}")
+def revoke_moderator_invitation(
+    invitation_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser_only),
+):
+    invitation = db.query(ModeratorInvitation).filter(
+        ModeratorInvitation.id == invitation_id,
+        ModeratorInvitation.accepted_at.is_(None),
+    ).first()
+    if invitation is None:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    db.delete(invitation)
+    db.commit()
+    return {"message": "Invitation revoked"}
+
+@router.post("/admin/moderators/{user_id}/revoke")
+def revoke_moderator(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser_only),
+):
+    moderator = db.query(User).filter(
+        User.id == user_id,
+        User.can_moderate_companies.is_(True),
+        User.is_superuser.is_(False),
+    ).first()
+    if moderator is None:
+        raise HTTPException(status_code=404, detail="Moderator not found")
+    moderator.can_moderate_companies = False
+    moderator.token_version += 1
+    db.commit()
+    return {"message": "Moderator access revoked"}
+
+@router.post("/accept-moderator-invitation", response_model=UserRead)
+def accept_moderator_invitation(
+    token: str,
+    username: str = Query(..., min_length=3, max_length=100),
+    password: str = Query(..., min_length=8),
+    db: Session = Depends(get_db),
+):
+    invitation = db.query(ModeratorInvitation).filter(
+        ModeratorInvitation.token_hash == _invitation_hash(token),
+        ModeratorInvitation.accepted_at.is_(None),
+        ModeratorInvitation.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
+    ).first()
+    if invitation is None:
+        raise HTTPException(status_code=400, detail="Invitation is invalid or expired")
+    if db.query(User).filter(User.email == invitation.email).first():
+        raise HTTPException(status_code=400, detail="Email is already registered")
+    if db.query(User).filter(User.username == username).first():
+        raise HTTPException(status_code=400, detail="Username already taken")
+
+    user = User(
+        email=invitation.email,
+        username=username,
+        hashed_password=get_password_hash(password),
+        role=UserRole.SPECIALIST,
+        is_verified=True,
+        is_active=True,
+        can_moderate_companies=True,
+        verification_status=VerificationStatus.VERIFIED.value,
+    )
+    db.add(user)
+    db.flush()
+    db.add(SpecialistProfile(user_id=user.id))
+    invitation.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    db.refresh(user)
+    return user
 
 UPLOAD_DIR = "static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -67,8 +270,11 @@ def list_admin_accounts(
     db: Session = Depends(get_db),
     admin: User = Depends(require_superuser),
     search: str | None = Query(None, max_length=100),
+    role: str | None = Query(None, pattern="^(specialist|company)$"),
 ):
     query = db.query(User).filter(User.id != admin.id)
+    if role:
+        query = query.filter(User.role == role)
     if search:
         search_pattern = f"%{search.strip()}%"
         query = query.filter((User.email.ilike(search_pattern)) | (User.username.ilike(search_pattern)))

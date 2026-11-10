@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from typing import Optional, List
 from uuid import UUID
 from app.database import get_db
-from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, ProjectInvite, ProjectMessage
+from app.models import User, Idea, IdeaResponse, Project, ProjectMember, UserRole, VerificationStatus, ProjectInvite, ProjectMessage
 from app.auth import get_current_user, get_optional_user
 from app.schemas.idea import (
     IdeaCreate, IdeaUpdate, IdeaResponse as IdeaResponseSchema,
@@ -75,6 +75,13 @@ def _remove_role(raw: Optional[str], role: str) -> str:
         item.strip() for item in (raw or "").split(",")
         if item.strip().casefold() != role.strip().casefold()
     ))
+
+def _require_verified_company(user: User) -> None:
+    if user.role == UserRole.COMPANY and user.verification_status != VerificationStatus.VERIFIED.value:
+        raise HTTPException(
+            status_code=403,
+            detail="Company verification is required for this action",
+        )
 
 # ---------- Идеи ----------
 @router.post("/", response_model=IdeaResponseSchema)
@@ -479,6 +486,7 @@ def convert_idea_to_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    _require_verified_company(current_user)
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
@@ -623,6 +631,7 @@ def invite_to_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    _require_verified_company(current_user)
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")

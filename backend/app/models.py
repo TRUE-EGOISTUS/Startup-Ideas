@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime, timezone
+from datetime import timedelta
 from sqlalchemy import Enum as SQLEnum
 import enum
 import uuid
@@ -31,6 +32,7 @@ class User(Base):
     role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.SPECIALIST)
     verification_status = Column(String(20), nullable=False, default=VerificationStatus.VERIFIED.value)
     verification_rejection_reason = Column(Text, nullable=True)
+    can_moderate_companies = Column(Boolean, nullable=False, default=False)
     username = Column(String(100), unique=True, nullable=False)
 
     # связи
@@ -42,6 +44,16 @@ class User(Base):
     idea_responses = relationship("IdeaResponse", back_populates="user")
     projects = relationship("ProjectMember", back_populates="user")
     project_messages = relationship("ProjectMessage", back_populates="user")
+
+class ModeratorInvitation(Base):
+    __tablename__ = "moderator_invitations"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String(100), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
 class Task(Base):
     __tablename__ = "tasks"
