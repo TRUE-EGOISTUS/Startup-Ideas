@@ -12,6 +12,7 @@ from app.schemas.task import (
      TaskCreate, TaskResponseSchema, 
      TaskResponseCreate, TaskResponseOut, 
     TaskCompleteRequest, TaskReviewRequest, OpenSolutionRequest, TaskExecutionOut, TaskDetailOut)
+from app.notifications import add_notification
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -53,6 +54,16 @@ def _handle_executor_deadline(task: Task, db: Session) -> bool:
             feedback="Исполнитель не уложился в дедлайн"
         )
         db.add(execution)
+        if task.assigned_to_id:
+            add_notification(
+                db, task.assigned_to_id, "task_deadline_expired", "Срок выполнения истёк",
+                f"Срок выполнения задачи «{task.title}» истёк.", f"/tasks/{task.id}",
+            )
+        add_notification(
+            db, task.author_id, "task_deadline_expired", "Исполнитель не уложился в срок",
+            f"Срок выполнения задачи «{task.title}» истёк. Задача снова открыта.",
+            f"/tasks/{task.id}",
+        )
         
         # Обновляем рейтинг исполнителя
         specialist = db.query(User).filter(User.id == task.assigned_to_id).first()
@@ -227,6 +238,10 @@ def create_response(
         message=response_data.message
     )
     db.add(response)
+    add_notification(
+        db, task.author_id, "task_response_received", "Новый отклик на задачу",
+        f"На задачу «{task.title}» поступил новый отклик.", f"/tasks/{task.id}",
+    )
     db.commit()
     db.refresh(response)
     return response
@@ -272,6 +287,10 @@ def accept_response(
     response.status = "accepted"
     task.assigned_to_id = response.user_id
     task.status = "in_progress"
+    add_notification(
+        db, response.user_id, "task_response_accepted", "Отклик принят",
+        f"Вы выбраны исполнителем задачи «{task.title}».", f"/tasks/{task.id}",
+    )
     
     # Устанавливаем персональный дедлайн для исполнителя, если это классическая задача
     if task.execution_mode == "classic" and task.executor_deadline_minutes:
@@ -304,6 +323,10 @@ def reject_response(
         raise HTTPException(status_code=404, detail="Response not found or already processed")
 
     response.status = "rejected"
+    add_notification(
+        db, response.user_id, "task_response_rejected", "Отклик отклонён",
+        f"Ваш отклик на задачу «{task.title}» отклонён.", f"/tasks/{task.id}",
+    )
     db.commit()
     return {"message": "Response rejected"}
 
@@ -343,6 +366,10 @@ def complete_task(
     db.add(execution)
     execution.status = "submitted"
     task.status = "awaiting_review"
+    add_notification(
+        db, task.author_id, "task_solution_submitted", "Решение отправлено на проверку",
+        f"Исполнитель отправил решение по задаче «{task.title}».", f"/tasks/{task.id}",
+    )
     db.commit()
     db.refresh(execution)
     return {"message": "Task completed successfully", "execution_id": execution.id}
@@ -382,6 +409,11 @@ def review_task(
     _requeue_responses(task.id, db)
     # Обновляем рейтинг исполнителя (среднее арифметическое)
     specialist = execution.user
+    add_notification(
+        db, specialist.id, "task_reviewed", "Задача проверена",
+        f"За задачу «{task.title}» выставлена оценка {review_data.rating}/5.",
+        f"/tasks/{task.id}",
+    )
     if specialist.role == UserRole.SPECIALIST:
        # Получаем все оценки по всем выполненным задачам специалиста
         all_ratings = db.query(TaskExecution.rating).filter(TaskExecution.user_id == specialist.id, TaskExecution.rating.isnot(None)).all()
@@ -434,6 +466,11 @@ def cancel_execution(
         feedback="Отказ от выполнения"
     )
     db.add(execution)
+    add_notification(
+        db, task.author_id, "task_execution_cancelled", "Исполнитель отказался от задачи",
+        f"Исполнитель отказался от выполнения задачи «{task.title}». Задача снова открыта.",
+        f"/tasks/{task.id}",
+    )
 
     task.assigned_to_id = None
     task.current_executor_deadline = None
@@ -487,6 +524,10 @@ def submit_open_solution(
         status="pending"
     )
     db.add(execution)
+    add_notification(
+        db, task.author_id, "task_solution_submitted", "Новое решение по задаче",
+        f"По задаче «{task.title}» отправлено новое решение.", f"/tasks/{task.id}",
+    )
     db.commit()
     db.refresh(execution)
     return execution
@@ -546,6 +587,11 @@ def accept_solution(
     execution.status = "accepted"
     execution.rating = rating
     execution.feedback = feedback
+    add_notification(
+        db, execution.user_id, "task_solution_accepted", "Решение принято",
+        f"Ваше решение по задаче «{task.title}» принято с оценкой {rating}/5.",
+        f"/tasks/{task.id}",
+    )
     
     # Не отклоняем остальные решения автоматически
     # Проверяем, остались ли ещё pending решения
@@ -605,6 +651,10 @@ def reject_solution(
 
     execution.status = "rejected"
     execution.feedback = feedback or "Решение отклонено автором задачи"
+    add_notification(
+        db, execution.user_id, "task_solution_rejected", "Решение отклонено",
+        f"Ваше решение по задаче «{task.title}» отклонено.", f"/tasks/{task.id}",
+    )
 
     # Проверяем, остались ли ещё pending решения
     pending_count = db.query(TaskExecution).filter(

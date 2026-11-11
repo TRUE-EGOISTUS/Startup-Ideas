@@ -6,6 +6,7 @@ from app.database import get_db, SessionLocal
 from app.models import Task, Message, User, ProjectMessage, Project, ProjectMember
 from app.auth import get_current_user
 from app.schemas.chat import MessageCreate, MessageOut, ProjectMessageCreate, ProjectMessageOut
+from app.notifications import add_notification
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/tasks/{task_id}/messages", tags=["chat"])
@@ -72,6 +73,12 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
 
                 chat_message = Message(task_id=task_id, user_id=current_user.id, text=text)
                 db.add(chat_message)
+                recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+                if recipient_id:
+                    add_notification(
+                        db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                        f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+                    )
                 db.commit()
                 db.refresh(chat_message)
                 await _broadcast_task_message(task_id, {
@@ -113,6 +120,12 @@ def send_message(
     
     message = Message(task_id=task_id, user_id=current_user.id, text=text)
     db.add(message)
+    recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+    if recipient_id:
+        add_notification(
+            db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+            f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+        )
     db.commit()
     db.refresh(message)
     return message
@@ -200,6 +213,14 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
 
                 chat_message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text)
                 db.add(chat_message)
+                for project_member in db.query(ProjectMember).filter(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id != current_user.id,
+                ).all():
+                    add_notification(
+                        db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                        f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+                    )
                 db.commit()
                 db.refresh(chat_message)
                 await _broadcast_project_message(project_id, {
@@ -259,6 +280,14 @@ async def announce_project_message(
 
     message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text, is_announcement=True)
     db.add(message)
+    for project_member in db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id != current_user.id,
+    ).all():
+        add_notification(
+            db, project_member.user_id, "project_announcement", "Новое объявление проекта",
+            f"Новое объявление в проекте «{project.name}».", f"/projects/{project.id}/chat",
+        )
     db.commit()
     db.refresh(message)
     await _broadcast_project_message(project_id, {
@@ -324,6 +353,14 @@ def send_project_message(
     
     message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text)
     db.add(message)
+    for project_member in db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id != current_user.id,
+    ).all():
+        add_notification(
+            db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+            f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+        )
     db.commit()
     db.refresh(message)
     return message

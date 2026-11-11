@@ -10,6 +10,7 @@ from app.schemas.user import (
     SpecialistProfileUpdate, CompanyProfileUpdate,
     PublicUserRead, AdminCompanyRead, AdminUserRead)
 from app.auth import send_moderator_invitation_email
+from app.notifications import add_notification
 from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
@@ -93,6 +94,10 @@ def grant_moderator_access(
     if user.is_superuser:
         raise HTTPException(status_code=400, detail="Superuser does not need moderator access")
     user.can_moderate_companies = True
+    add_notification(
+        db, user.id, "moderator_granted", "Права модератора назначены",
+        "Вам доступны функции модерации компаний.", "/admin/company-verifications",
+    )
     db.commit()
     return {"message": "Moderator access granted"}
 
@@ -181,6 +186,10 @@ def revoke_moderator(
         raise HTTPException(status_code=404, detail="Moderator not found")
     moderator.can_moderate_companies = False
     moderator.token_version += 1
+    add_notification(
+        db, moderator.id, "moderator_revoked", "Права модератора отозваны",
+        "Права модератора больше недоступны.", "/",
+    )
     db.commit()
     return {"message": "Moderator access revoked"}
 
@@ -294,6 +303,10 @@ def approve_company_verification(
         raise HTTPException(status_code=404, detail="Company not found")
     user.verification_status = VerificationStatus.VERIFIED.value
     user.verification_rejection_reason = None
+    add_notification(
+        db, user.id, "company_approved", "Компания подтверждена",
+        "Профиль компании прошел проверку. Теперь доступны все функции проекта.", "/profile",
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -313,6 +326,10 @@ def reject_company_verification(
         raise HTTPException(status_code=404, detail="Company not found")
     user.verification_status = VerificationStatus.REJECTED.value
     user.verification_rejection_reason = reason.strip()
+    add_notification(
+        db, user.id, "company_rejected", "Профиль компании отклонен",
+        f"Причина: {user.verification_rejection_reason}", "/profile",
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -332,6 +349,10 @@ def resubmit_company_verification(
         raise HTTPException(status_code=404, detail="Rejected company not found")
     user.verification_status = VerificationStatus.PENDING.value
     user.verification_rejection_reason = None
+    add_notification(
+        db, user.id, "company_resubmitted", "Профиль отправлен на повторную проверку",
+        "Модератор рассмотрит обновленный профиль.", "/profile",
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -349,6 +370,10 @@ def block_account(
         raise HTTPException(status_code=400, detail="Administrator accounts cannot be blocked")
     user.is_active = False
     user.token_version += 1
+    add_notification(
+        db, user.id, "account_blocked", "Аккаунт заблокирован",
+        "Доступ к аккаунту был заблокирован администратором.", "/profile",
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -363,6 +388,10 @@ def unblock_account(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     user.is_active = True
+    add_notification(
+        db, user.id, "account_unblocked", "Аккаунт разблокирован",
+        "Доступ к аккаунту был восстановлен.", "/profile",
+    )
     db.commit()
     db.refresh(user)
     return user

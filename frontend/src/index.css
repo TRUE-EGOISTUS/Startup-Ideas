@@ -825,6 +825,39 @@ a {
   flex-wrap: wrap;
 }
 
+.notifications-action-button {
+  min-width: 168px;
+}
+
+.notifications-clear-button.ant-btn-dangerous {
+  background: #DC2626 !important;
+  border-color: #DC2626 !important;
+  color: #FFFFFF !important;
+}
+
+.notifications-clear-button.ant-btn-dangerous:hover,
+.notifications-clear-button.ant-btn-dangerous:focus {
+  background: #B91C1C !important;
+  border-color: #B91C1C !important;
+  color: #FFFFFF !important;
+}
+
+.notifications-clear-button.ant-btn-dangerous:active {
+  background: #991B1B !important;
+  border-color: #991B1B !important;
+  color: #FFFFFF !important;
+}
+
+.notifications-filter {
+  margin-bottom: 16px;
+}
+
+.notifications-load-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 16px;
+}
+
 .page-filters {
   display: flex;
   flex-wrap: wrap;
