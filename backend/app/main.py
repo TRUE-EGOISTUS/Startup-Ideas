@@ -7,6 +7,7 @@ from app.users import router as users_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.chat import router as chat_router, project_router
 from app.ideas import router as ideas_router
+from app.notifications import router as notifications_router
 from fastapi.staticfiles import StaticFiles
 
 
@@ -28,6 +29,7 @@ app.include_router(users_router)
 app.include_router(chat_router)
 app.include_router(project_router)
 app.include_router(ideas_router)
+app.include_router(notifications_router)
 
 @app.get("/health")
 async def health():

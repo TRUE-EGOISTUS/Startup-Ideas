@@ -55,6 +55,18 @@ class ModeratorInvitation(Base):
     accepted_at = Column(DateTime, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    notification_type = Column(String(50), nullable=False)
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    link = Column(String(500), nullable=True)
+    is_read = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
 class Task(Base):
     __tablename__ = "tasks"
 

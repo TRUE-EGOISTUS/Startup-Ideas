@@ -11,6 +11,7 @@ from app.schemas.idea import (
     IdeaResponseCreate, IdeaResponseOut,
     ProjectCreate, ProjectOut, ProjectMemberOut, ProjectInviteOut, ProjectInviteCreate
 )
+from app.notifications import add_notification
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -374,6 +375,10 @@ def respond_to_idea(
         message=response_data.message
     )
     db.add(response)
+    add_notification(
+        db, idea.author_id, "idea_response_received", "Новый отклик на идею",
+        f"На идею «{idea.title}» поступил новый отклик.", f"/ideas/{idea.id}",
+    )
     db.commit()
     db.refresh(response)
     return response
@@ -427,6 +432,10 @@ def accept_idea_response(
         raise HTTPException(status_code=400, detail="User is already a member of another project")
     
     response.status = "accepted"
+    add_notification(
+        db, response.user_id, "idea_response_accepted", "Отклик на идею принят",
+        f"Автор принял ваш отклик на идею «{idea.title}».", f"/ideas/{idea.id}",
+    )
     db.commit()
     return {"message": "User accepted; they will join when the idea becomes a project"}
 
@@ -451,6 +460,10 @@ def reject_idea_response(
     if not response:
         raise HTTPException(status_code=404, detail="Response not found or already processed")
     
+    add_notification(
+        db, response.user_id, "idea_response_rejected", "Отклик на идею отклонён",
+        f"Ваш отклик на идею «{idea.title}» отклонён.", f"/ideas/{idea.id}",
+    )
     db.delete(response)
     db.commit()
     return {"message": "Response rejected"}
@@ -592,6 +605,11 @@ def update_member_role(
         raise HTTPException(status_code=404, detail="User not found")
     _validate_role_for_user(project, member_user, normalized_role)
     member.role = normalized_role
+    add_notification(
+        db, member.user_id, "project_role_changed", "Изменена роль в проекте",
+        f"В проекте «{project.name}» вам назначена роль «{normalized_role}».",
+        f"/projects/{project.id}",
+    )
     db.commit()
     return {"message": "Member role updated", "role": member.role}
 
@@ -676,6 +694,10 @@ def invite_to_project(
         project.roles_specialists = _combined_roles(project.roles_specialists, normalized_role)
     project.roles_needed = _combined_roles(project.roles_specialists, project.roles_companies, project.roles_needed)
     db.add(invite)
+    add_notification(
+        db, user.id, "project_invitation_received", "Приглашение в проект",
+        f"Вас пригласили в проект «{project.name}».", f"/projects/{project.id}",
+    )
     db.commit()
     db.refresh(invite)
     return {"message": "Invitation sent", "invite_id": invite.id}
@@ -713,6 +735,10 @@ def accept_project_invite(
         role=invite.role)
     db.add(member)
     invite.status = "accepted"
+    add_notification(
+        db, project.created_by, "project_invitation_accepted", "Приглашение принято",
+        f"Приглашение в проект «{invite.project.name}» принято.", f"/projects/{project.id}",
+    )
     db.commit()
     return {"message": "Invitation accepted and you are now a member of the project"}
 
@@ -745,7 +771,12 @@ def reject_project_invite(
     if not invite:
         raise HTTPException(status_code=404, detail="Invitation not found")
     
+    project = invite.project
     invite.status = "rejected"
+    add_notification(
+        db, project.created_by, "project_invitation_rejected", "Приглашение отклонено",
+        f"Приглашение в проект «{project.name}» отклонено.", f"/projects/{project.id}",
+    )
     db.commit()
     return {"message": "Invitation rejected"}
 
@@ -766,6 +797,10 @@ def leave_project(
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="You are not a member of this project")
+    add_notification(
+        db, project.created_by, "project_member_left", "Участник покинул проект",
+        f"Участник покинул проект «{project.name}».", f"/projects/{project.id}",
+    )
     db.delete(member)
     db.commit()
     return {"message": "You left the project"}
@@ -790,6 +825,10 @@ def remove_member(
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="User is not a member")
+    add_notification(
+        db, member.user_id, "project_member_removed", "Вы удалены из проекта",
+        f"Вы больше не состоите в проекте «{project.name}».", f"/projects/{project.id}",
+    )
     db.delete(member)
     db.commit()
     return {"message": "Member removed"}

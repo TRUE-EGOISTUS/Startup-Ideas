@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Alert, Layout, Menu, Button, Typography, Space, Drawer } from "antd";
+import { Alert, Layout, Menu, Button, Typography, Space, Drawer, Badge, Dropdown, Empty } from "antd";
 import {
   HomeOutlined,
   CheckCircleOutlined,
@@ -9,21 +9,70 @@ import {
   UserOutlined,
   LoginOutlined,
   MenuOutlined,
-  SafetyCertificateOutlined
+  SafetyCertificateOutlined,
+  BellOutlined
 } from "@ant-design/icons";
 import { useAuthStore } from "../store/auth";
+import { api } from "../lib/api";
 
 const { Header, Content } = Layout;
+
+type Notification = {
+  id: number;
+  title: string;
+  message: string;
+  link?: string | null;
+  is_read: boolean;
+  created_at: string;
+};
 
 export function MainLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, loadMe, logout } = useAuthStore();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
     loadMe();
   }, [loadMe]);
+
+  useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+    api.get<Notification[]>("/notifications").then(({ data }) => setNotifications(data));
+  }, [user]);
+
+  const markNotificationRead = async (notification: Notification) => {
+    if (!notification.is_read) {
+      await api.patch(`/notifications/${notification.id}/read`);
+      setNotifications((items) => items.map((item) =>
+        item.id === notification.id ? { ...item, is_read: true } : item
+      ));
+    }
+    if (notification.link) navigate(notification.link);
+  };
+
+  const notificationMenu = {
+    items: [
+      ...(notifications.length
+        ? notifications.slice(0, 8).map((notification) => ({
+          key: String(notification.id),
+          label: (
+            <div className={notification.is_read ? "notification-item" : "notification-item notification-item--unread"}>
+              <Typography.Text strong={!notification.is_read}>{notification.title}</Typography.Text>
+              <div>{notification.message}</div>
+            </div>
+          ),
+          onClick: () => markNotificationRead(notification)
+        }))
+        : [{ key: "empty", disabled: true, label: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Нет уведомлений" /> }]),
+      { type: "divider" as const },
+      { key: "all", label: <Link to="/notifications">Все уведомления</Link> }
+    ]
+  };
 
   const selectedKey = location.pathname.split("/")[1] || "home";
   const menuItems = useMemo(
@@ -77,6 +126,11 @@ export function MainLayout() {
   <Space className="app-header-actions">
     {user ? (
       <>
+        <Dropdown menu={notificationMenu} trigger={["click"]} placement="bottomRight">
+          <Badge count={notifications.filter((notification) => !notification.is_read).length} size="small">
+            <Button type="text" icon={<BellOutlined />} aria-label="Уведомления" />
+          </Badge>
+        </Dropdown>
         <Typography.Text>{user.email}</Typography.Text>
         <Button onClick={handleLogout} danger>
           Выйти
@@ -105,6 +159,11 @@ export function MainLayout() {
         <div className="app-mobile-actions">
           {user ? (
             <>
+              <Dropdown menu={notificationMenu} trigger={["click"]} placement="bottomRight">
+                <Badge count={notifications.filter((notification) => !notification.is_read).length} size="small">
+                  <Button type="text" icon={<BellOutlined />} aria-label="Уведомления" />
+                </Badge>
+              </Dropdown>
               <Typography.Text>{user.email}</Typography.Text>
               <Button onClick={handleLogout} danger className="w-full">
                 Выйти
