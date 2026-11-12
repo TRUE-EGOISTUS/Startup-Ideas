@@ -1,9 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Response
 from pydantic import EmailStr
 from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.models import User, UserRole, VerificationStatus, CompanyProfile, ModeratorInvitation
-from app.auth import get_current_user, verify_password, get_password_hash
+from app.auth import (
+    get_current_user,
+    verify_password,
+    get_password_hash,
+    create_access_token,
+    create_refresh_token,
+)
+from app.config import settings
 from app.schemas.user import (
     UserRead, UserUpdate, ChangePasswordRequest,
     SpecialistProfileRead, CompanyProfileRead, 
@@ -399,13 +406,16 @@ def unblock_account(
 @router.put("/me", response_model=UserRead)
 def update_me(
     user_data: UserUpdate,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    email_changed = False
     if user_data.email is not None:
         existing = db.query(User).filter(User.email == user_data.email, User.id != current_user.id).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
+        email_changed = user_data.email != current_user.email
         current_user.email = user_data.email
     if user_data.username is not None:
         existing = db.query(User).filter(User.username == user_data.username, User.id != current_user.id).first()
@@ -413,6 +423,24 @@ def update_me(
             raise HTTPException(status_code=400, detail="Username already taken")
         current_user.username = user_data.username
     db.commit()
+    if email_changed:
+        token_data = {"sub": current_user.email, "token_version": current_user.token_version}
+        response.set_cookie(
+            key="access_token",
+            value=create_access_token(token_data),
+            httponly=True,
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            samesite="lax",
+            secure=settings.COOKIE_SECURE,
+        )
+        response.set_cookie(
+            key="refresh_token",
+            value=create_refresh_token(token_data),
+            httponly=True,
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            samesite="lax",
+            secure=settings.COOKIE_SECURE,
+        )
     return current_user
 
 @router.get("/me/profile", response_model=SpecialistProfileRead | CompanyProfileRead)

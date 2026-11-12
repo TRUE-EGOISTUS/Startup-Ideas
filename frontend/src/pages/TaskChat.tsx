@@ -352,7 +352,7 @@ export function TaskChatPage() {
           <span>Дедлайн: {dateTimeLabel(task.current_executor_deadline || task.deadline)}</span>
           <span>
             Собеседник: {user.id === task.author_id ? (
-              assignedExecutor ? <Link to={`/profile/${assignedExecutor.id}`}>{assignedExecutor.email}</Link> : "-"
+              assignedExecutor ? <Link to={`/profile/${assignedExecutor.id}`}>{assignedExecutor.username || "Исполнитель"}</Link> : "-"
             ) : (
               <Link to={`/profile/${task.author_id}`}>{task.author_email || "-"}</Link>
             )}

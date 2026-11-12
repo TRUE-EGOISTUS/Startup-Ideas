@@ -26,6 +26,8 @@ import {
   SaveOutlined,
   UserOutlined,
   StarOutlined,
+  CheckCircleOutlined,
+  LinkOutlined,
 } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { api, getUserPublic } from "../lib/api";
@@ -35,6 +37,7 @@ import type { Project } from "../types";
 
 type ProfileData = {
   skills?: string | null;
+  bio?: string | null;
   rating?: number;
   github_url?: string | null;
   portfolio?: string | null;
@@ -199,7 +202,20 @@ export function ProfilePage() {
   const displayName = isOwn
     ? user?.username
     : publicUser?.username || "Пользователь";
-  const displayEmail = isOwn ? user?.email : publicUser?.email;
+  const displayEmail = isOwn ? user?.email : undefined;
+  const skillTags = (profile.skills || "")
+    .split(",")
+    .map((skill) => skill.trim())
+    .filter(Boolean);
+  const safeExternalUrl = (value?: string | null) => {
+    if (!value) return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+    } catch {
+      return null;
+    }
+  };
 
   const profileCompletion =
     isOwn && user
@@ -282,9 +298,11 @@ export function ProfilePage() {
               <Typography.Title level={3} className="profile-name">
                 {displayName || "Новый пользователь"}
               </Typography.Title>
-              <Typography.Text className="profile-email">
-                <MailOutlined /> {displayEmail}
-              </Typography.Text>
+              {displayEmail && (
+                <Typography.Text className="profile-email">
+                  <MailOutlined /> {displayEmail}
+                </Typography.Text>
+              )}
               <div className="profile-meta">
                 <Tag>
                   {publicUser?.role === "company"
@@ -298,6 +316,9 @@ export function ProfilePage() {
                       Рейтинг: {profile.rating.toFixed(1)}
                     </Tag>
                   )}
+                {publicUser?.role === "company" && publicUser.verification_status === "verified" && (
+                  <Tag icon={<CheckCircleOutlined />} color="success">Проверенная компания</Tag>
+                )}
               </div>
             </div>
           </div>
@@ -390,6 +411,16 @@ export function ProfilePage() {
               ) : (
                 <Row gutter={16}>
                   <Col span={24}>
+                    <Form.Item label="О себе" name="bio">
+                      <Input.TextArea
+                        rows={3}
+                        maxLength={500}
+                        showCount
+                        placeholder="Кратко расскажите о себе и проектах, которые вам интересны"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={24}>
                     <Form.Item label="Навыки" name="skills">
                       <Input placeholder="React, UI/UX, Python" />
                     </Form.Item>
@@ -441,9 +472,6 @@ export function ProfilePage() {
                 <Descriptions.Item label="Имя пользователя">
                   {publicUser.username || "-"}
                 </Descriptions.Item>
-                <Descriptions.Item label="Email">
-                  {publicUser.email}
-                </Descriptions.Item>
                 <Descriptions.Item label="Роль">
                   {publicUser.role === "company" ? "Компания" : "Специалист"}
                 </Descriptions.Item>
@@ -451,16 +479,31 @@ export function ProfilePage() {
                   publicUser.specialist_profile && (
                     <>
                       <Descriptions.Item label="Навыки">
-                        {publicUser.specialist_profile.skills || "-"}
+                        {skillTags.length ? (
+                          <Space wrap>
+                            {skillTags.map((skill) => <Tag key={skill} color="blue">{skill}</Tag>)}
+                          </Space>
+                        ) : "-"}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="О себе">
+                        {publicUser.specialist_profile.bio || "-"}
                       </Descriptions.Item>
                       <Descriptions.Item label="Рейтинг">
                         {publicUser.specialist_profile.rating?.toFixed(1) ?? "Нет"}
                       </Descriptions.Item>
                       <Descriptions.Item label="GitHub">
-                        {publicUser.specialist_profile.github_url || "-"}
+                        {safeExternalUrl(publicUser.specialist_profile.github_url) ? (
+                          <a href={safeExternalUrl(publicUser.specialist_profile.github_url)!} target="_blank" rel="noreferrer">
+                            <LinkOutlined /> Открыть GitHub
+                          </a>
+                        ) : "-"}
                       </Descriptions.Item>
                       <Descriptions.Item label="Портфолио">
-                        {publicUser.specialist_profile.portfolio || "-"}
+                        {safeExternalUrl(publicUser.specialist_profile.portfolio) ? (
+                          <a href={safeExternalUrl(publicUser.specialist_profile.portfolio)!} target="_blank" rel="noreferrer">
+                            <LinkOutlined /> Открыть портфолио
+                          </a>
+                        ) : publicUser.specialist_profile.portfolio || "-"}
                       </Descriptions.Item>
                     </>
                   )}
