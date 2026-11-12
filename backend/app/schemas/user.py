@@ -56,6 +56,7 @@ class SpecialistProfileRead(BaseModel):
     id: int
     user_id: int
     skills: Optional[str]
+    bio: Optional[str]
     rating: float
     github_url: Optional[str]
     portfolio: Optional[str]
@@ -80,6 +81,7 @@ class CompanyProfileRead(BaseModel):
 # для обновления профилей (потом можно расширить)
 class SpecialistProfileUpdate(BaseModel):
     skills: Optional[str] = None
+    bio: Optional[str] = None
     github_url: Optional[str] = None
     portfolio: Optional[str] = None
     cover_url: Optional[str] = None
@@ -95,14 +97,19 @@ class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
 
-class PublicUserRead(UserBase):
+class PublicUserRead(BaseModel):
     id: int
-    is_active: bool
+    role: UserRole
     created_at: datetime
     updated_at: Optional[datetime]
     username: Optional[str]
+    is_active: bool
+    verification_status: Optional[VerificationStatus] = None
     specialist_profile: Optional[SpecialistProfileRead] = None
     company_profile: Optional[CompanyProfileRead] = None
+
+    class Config:
+        from_attributes = True
 
     @computed_field
     @property

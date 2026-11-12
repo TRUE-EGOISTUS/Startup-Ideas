@@ -103,6 +103,7 @@ class SpecialistProfile(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     skills = Column(Text)
+    bio = Column(Text, nullable=True)
     github_url = Column(String(200))
     portfolio = Column(Text)
     rating = Column(Float, default=0.0)

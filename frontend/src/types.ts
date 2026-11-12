@@ -119,16 +119,17 @@ export type Message = {
 
 export type PublicUser = {
   id: number;
-  email: string;
   role: 'specialist' | 'company';
   username: string | null;
   is_active: boolean;
+  verification_status?: 'verified' | 'pending' | 'rejected' | null;
   created_at: string;
   updated_at: string | null;
   specialist_profile?: {
     id: number;
     user_id: number;
     skills: string | null;
+    bio: string | null;
     rating: number;
     github_url: string | null;
     portfolio: string | null;

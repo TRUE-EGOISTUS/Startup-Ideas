@@ -5,6 +5,7 @@ import { useAuthStore } from "../store/auth";
 
 type SpecialistProfile = {
   skills?: string | null;
+  bio?: string | null;
   github_url?: string | null;
   portfolio?: string | null;
 };
@@ -66,7 +67,15 @@ export function ProfileDetailsPage() {
           </Form>
         ) : user?.role === "specialist" ? (
           <Form layout="vertical" onFinish={onUpdateProfile} form={form}>
-            <Form.Item label="Навыки" name="skills">
+          <Form.Item label="О себе" name="bio">
+            <Input.TextArea
+              rows={3}
+              maxLength={500}
+              showCount
+              placeholder="Кратко расскажите о себе и проектах, которые вам интересны"
+            />
+          </Form.Item>
+          <Form.Item label="Навыки" name="skills">
               <Input placeholder="React, UI/UX, Python" />
             </Form.Item>
             <Form.Item label="GitHub" name="github_url">

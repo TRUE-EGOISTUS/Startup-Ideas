@@ -107,7 +107,7 @@ export function MainLayout() {
     
     {/* Добавляем логотип */}
     <Link to="/" className="app-logo-link">
-      <img src="/Junion.svg" alt="Junion Logo" className="app-logo-img" />
+      <img src="../static/uploads/Junion.svg" alt="Junion Logo" className="app-logo-img" />
     </Link>
 
     {/* Текст JUNION можно оставить рядом или убрать, если логотип самодостаточный */}

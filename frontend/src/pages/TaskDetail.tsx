@@ -226,7 +226,7 @@ export function TaskDetailPage() {
             <Descriptions.Item label="Исполнитель">
               {task.assigned_to_id ? (
                 <Link to={`/profile/${task.assigned_to_id}`}>
-                  {assignedExecutor?.email || `Исполнитель #${task.assigned_to_id}`}
+                  {assignedExecutor?.username || `Исполнитель #${task.assigned_to_id}`}
                 </Link>
               ) : "-"}
             </Descriptions.Item>
