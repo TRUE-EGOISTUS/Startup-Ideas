@@ -30,7 +30,14 @@ export function TasksCreatePage() {
 
   const onCreate = async (values: Record<string, unknown>) => {
     try {
-      await api.post("/tasks", values);
+      const skills = Array.isArray(values.required_skills)
+        ? Array.from(new Set(
+            values.required_skills
+              .map((skill) => String(skill).trim().replace(/\s+/g, " ").toLowerCase())
+              .filter(Boolean)
+          )).join(", ")
+        : values.required_skills;
+      await api.post("/tasks", { ...values, required_skills: skills });
       message.success("Задача создана");
       form.resetFields();
       fetchTasks();
@@ -82,8 +89,13 @@ export function TasksCreatePage() {
               <Input type="datetime-local" />
             </Form.Item>
           )}
-          <Form.Item label="Навыки (через запятую)" name="required_skills">
-            <Input placeholder="React, Figma, UX" />
+          <Form.Item label="Навыки" name="required_skills" extra="Добавляйте каждый навык отдельным тегом">
+            <Select
+              mode="tags"
+              tokenSeparators={[","]}
+              placeholder="Например, react, figma, ux"
+              maxTagCount="responsive"
+            />
           </Form.Item>
           <Form.Item label="Сложность" name="difficulty">
             <Input placeholder="easy / medium / hard" />

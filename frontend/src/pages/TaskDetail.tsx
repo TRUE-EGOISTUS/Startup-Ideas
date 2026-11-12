@@ -174,8 +174,8 @@ export function TaskDetailPage() {
           <p style={{ marginBottom: 8 }}>Это действие необратимо. При закрытии задачи будут удалены:</p>
           <div
             style={{
-              backgroundColor: "#fff",
-              color: "#000",
+              backgroundColor: "var(--app-surface-soft)",
+              color: "var(--app-ink)",
               borderRadius: 4,
               padding: "8px 12px",
             }}
@@ -186,21 +186,13 @@ export function TaskDetailPage() {
                 listStylePosition: "outside",
                 paddingLeft: 24,
                 margin: 0,
-                color: "#000",
+                color: "var(--app-ink)",
               }}
             >
-              <li style={{ color: "#000" }}>
-                <span style={{ color: "#000" }}>сама задача;</span>
-              </li>
-              <li style={{ color: "#000" }}>
-                <span style={{ color: "#000" }}>все отклики специалистов на неё;</span>
-              </li>
-              <li style={{ color: "#000" }}>
-                <span style={{ color: "#000" }}>все сданные решения и история их проверки;</span>
-              </li>
-              <li style={{ color: "#000" }}>
-                <span style={{ color: "#000" }}>переписка по задаче.</span>
-              </li>
+              <li>сама задача;</li>
+              <li>все отклики специалистов на неё;</li>
+              <li>все сданные решения и история их проверки;</li>
+              <li>переписка по задаче.</li>
             </ul>
           </div>
         </div>

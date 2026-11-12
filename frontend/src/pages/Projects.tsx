@@ -117,7 +117,7 @@ export function ProjectsPage() {
         title="Список проектов"
         extra={
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span>Сортировка:</span>
+            <span className="sort-label">Сортировка:</span>
             <Button
               type="text"
               size="small"

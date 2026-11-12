@@ -13,6 +13,7 @@ from app.schemas.task import (
      TaskResponseCreate, TaskResponseOut, 
     TaskCompleteRequest, TaskReviewRequest, OpenSolutionRequest, TaskExecutionOut, TaskDetailOut)
 from app.notifications import add_notification
+from app.skill_tags import normalize_skill_tags
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -116,7 +117,7 @@ def create_task(
     deadline=deadline_utc,
     visibility=task_data.visibility,
     execution_mode=task_data.execution_mode,
-    required_skills=task_data.required_skills,
+    required_skills=normalize_skill_tags(task_data.required_skills),
     difficulty=task_data.difficulty,
     executor_deadline_minutes=task_data.executor_deadline_minutes if task_data.execution_mode == "classic" else None
 )
@@ -161,11 +162,12 @@ def get_tasks(
         query = query.filter(
             or_(
                 Task.title.ilike(f"%{search}%"),
-                Task.description.ilike(f"%{search}%")
+                Task.description.ilike(f"%{search}%"),
+                Task.required_skills.ilike(f"%{search}%")
             )
         )
     if skill:
-        query = query.filter(Task.required_skills.contains(skill))
+        query = query.filter(Task.required_skills.ilike(f"%{skill.strip().casefold()}%"))
     total = query.count()
     _refresh_task_display_ids(db)
     db.flush()

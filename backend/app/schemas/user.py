@@ -125,6 +125,16 @@ class PublicUserRead(BaseModel):
             return msk.isoformat(timespec='milliseconds')
         return None
 
+
+class SpecialistHomeRead(BaseModel):
+    id: int
+    username: Optional[str]
+    skills: list[str]
+    avatar_url: Optional[str]
+    weekly_activity: int
+    weekly_rating: Optional[float]
+
+
     class Config:
         from_attributes = True
 
