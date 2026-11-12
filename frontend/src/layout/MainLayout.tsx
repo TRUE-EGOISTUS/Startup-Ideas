@@ -10,7 +10,9 @@ import {
   LoginOutlined,
   MenuOutlined,
   SafetyCertificateOutlined,
-  BellOutlined
+  BellOutlined,
+  MoonOutlined,
+  SunOutlined
 } from "@ant-design/icons";
 import { useAuthStore } from "../store/auth";
 import { api } from "../lib/api";
@@ -32,6 +34,14 @@ export function MainLayout() {
   const { user, loadMe, logout } = useAuthStore();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("junion-theme") === "dark");
+
+  useEffect(() => {
+    const themeClass = "dark-theme";
+    document.documentElement.classList.toggle(themeClass, darkMode);
+    document.body.classList.toggle(themeClass, darkMode);
+    localStorage.setItem("junion-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   useEffect(() => {
     loadMe();
@@ -95,7 +105,7 @@ export function MainLayout() {
   };
 
   return (
-    <Layout className="min-h-screen app-shell">
+    <Layout className={`min-h-screen app-shell${darkMode ? " dark-theme" : ""}`}>
   <Header className="app-header flex items-center justify-between">
   <Space className="app-header-left">
     <Button
@@ -124,6 +134,14 @@ export function MainLayout() {
   />
   
   <Space className="app-header-actions">
+    <Button
+      className="theme-toggle"
+      type="text"
+      icon={darkMode ? <SunOutlined /> : <MoonOutlined />}
+      onClick={() => setDarkMode((current) => !current)}
+      aria-label={darkMode ? "Включить светлую тему" : "Включить темную тему"}
+      title={darkMode ? "Светлая тема" : "Темная тема"}
+    />
     {user ? (
       <>
         <Dropdown menu={notificationMenu} trigger={["click"]} placement="bottomRight">
@@ -157,6 +175,14 @@ export function MainLayout() {
           onClick={() => setMobileOpen(false)}
         />
         <div className="app-mobile-actions">
+          <Button
+            className="theme-toggle theme-toggle-mobile"
+            type="text"
+            icon={darkMode ? <SunOutlined /> : <MoonOutlined />}
+            onClick={() => setDarkMode((current) => !current)}
+          >
+            {darkMode ? "Светлая тема" : "Темная тема"}
+          </Button>
           {user ? (
             <>
               <Dropdown menu={notificationMenu} trigger={["click"]} placement="bottomRight">

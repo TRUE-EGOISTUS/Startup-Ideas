@@ -202,6 +202,7 @@ export function ProjectDetailPage() {
                         actions={isAuthor && !isMemberAuthor ? [
                           <Space key="actions">
                             <Select
+                              className="project-role-select"
                               value={item.role || "member"}
                               options={roleOptions(item)}
                               onChange={(role) => void onRoleChange(item, role)}

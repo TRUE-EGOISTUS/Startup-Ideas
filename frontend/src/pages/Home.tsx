@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Empty, Spin } from "antd";
+import { Avatar, Button, Empty, Spin, Tag } from "antd";
 import { Link } from "react-router-dom";
 import "./Home.css";
 import { api } from "../lib/api";
-import type { Task } from "../types";
+import type { HomeSpecialist, Task } from "../types";
+import { useAuthStore } from "../store/auth";
 
 export function HomePage() {
   const [mode, setMode] = useState<"seekers" | "employers">("seekers");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [specialists, setSpecialists] = useState<HomeSpecialist[]>([]);
+  const [loadingSpecialists, setLoadingSpecialists] = useState(false);
+  const { user } = useAuthStore();
+  const apiBaseUrl = api.defaults.baseURL ?? "http://localhost:8000";
 
   const fetchTasks = async (search?: string) => {
     setLoadingTasks(true);
@@ -30,6 +35,30 @@ export function HomePage() {
     fetchTasks();
   }, []);
 
+  const fetchSpecialists = async (search?: string) => {
+    setLoadingSpecialists(true);
+    try {
+      const { data } = await api.get<HomeSpecialist[]>("/users/specialists/home", {
+        params: { search: search?.trim() || undefined },
+      });
+      setSpecialists(data);
+    } catch {
+      setSpecialists([]);
+    } finally {
+      setLoadingSpecialists(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSpecialists();
+  }, []);
+
+  useEffect(() => {
+    if (user?.role === "company") {
+      setMode("employers");
+    }
+  }, [user?.role]);
+
   const popularTasks = useMemo(() => tasks.slice(0, 3), [tasks]);
   const skillsBuckets = useMemo(() => {
     const buckets = new Map<string, Task[]>();
@@ -37,7 +66,12 @@ export function HomePage() {
       if (!task.required_skills) {
         return;
       }
-      const skills = task.required_skills.split(",").map((skill) => skill.trim()).filter(Boolean);
+      const skills = Array.from(new Set(
+        task.required_skills
+          .split(",")
+          .map((skill) => skill.trim().replace(/\s+/g, " ").toLowerCase())
+          .filter(Boolean)
+      ));
       skills.forEach((skill) => {
         const list = buckets.get(skill) ?? [];
         list.push(task);
@@ -114,7 +148,7 @@ export function HomePage() {
         <div className="home-search-box">
           <input
             type="text"
-            placeholder="Поиск задач, ролей, навыков"
+            placeholder={mode === "seekers" ? "Поиск задач и навыков" : "Поиск специалистов и навыков"}
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
@@ -122,8 +156,11 @@ export function HomePage() {
             className="btn btn-primary"
             type="button"
             onClick={() => {
-              setMode("seekers");
-              fetchTasks(searchTerm);
+              if (mode === "seekers") {
+                fetchTasks(searchTerm);
+              } else {
+                fetchSpecialists(searchTerm);
+              }
             }}
           >
             Поиск
@@ -165,17 +202,40 @@ export function HomePage() {
           </div>
         ) : (
           <div className="home-grid">
-            <div className="home-empty">
-              <Empty description="Популярные профили специалистов появятся позже" />
-            </div>
+            {loadingSpecialists && <div className="home-loading"><Spin /></div>}
+            {!loadingSpecialists && specialists.length === 0 && (
+              <div className="home-empty"><Empty description="Специалисты пока не найдены" /></div>
+            )}
+            {specialists.slice(0, 3).map((specialist) => (
+              <Link className="home-card-link" to={`/profile/${specialist.id}`} key={specialist.id}>
+                <article className="home-card home-specialist-card">
+                  <div className="home-specialist-head">
+                    <Avatar
+                      size={52}
+                      src={specialist.avatar_url ? `${apiBaseUrl}${specialist.avatar_url}` : undefined}
+                    />
+                    <div>
+                      <h3>{specialist.username || "Специалист"}</h3>
+                      <div className="home-card-meta">Активность за неделю: {specialist.weekly_activity}</div>
+                    </div>
+                  </div>
+                  <div className="home-pill-row">
+                    {specialist.weekly_rating !== null && (
+                      <span className="home-pill">Рейтинг: {specialist.weekly_rating.toFixed(1)}</span>
+                    )}
+                    {specialist.skills.slice(0, 3).map((skill) => <Tag key={skill}>{skill}</Tag>)}
+                  </div>
+                </article>
+              </Link>
+            ))}
           </div>
         )}
       </section>
 
       <section className="home-section" id="skills">
         <div>
-          <h2>Задачи по навыкам</h2>
-          <p>Подборки по направлениям для быстрого старта</p>
+          <h2>{mode === "seekers" ? "Задачи по навыкам" : "Специалисты по навыкам"}</h2>
+          <p>{mode === "seekers" ? "Подборки по направлениям для быстрого старта" : "Найдите специалистов с нужными навыками"}</p>
         </div>
 
         {mode === "seekers" ? (
@@ -191,7 +251,22 @@ export function HomePage() {
               </div>
             )}
             {skillsBuckets.map(([skill, skillTasks]) => (
-              <article className="home-skill-card" key={skill}>
+              <article
+                className="home-skill-card home-skill-card--clickable"
+                key={skill}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setSearchTerm(skill);
+                  fetchTasks(skill);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    setSearchTerm(skill);
+                    fetchTasks(skill);
+                  }
+                }}
+              >
                 <div className="home-skill-title">{skill}</div>
                 <p>{skillTasks[0]?.title || "Задачи по навыку"}</p>
                 <div className="home-pill-row">
@@ -203,9 +278,26 @@ export function HomePage() {
           </div>
         ) : (
           <div className="home-grid">
-            <div className="home-empty">
-              <Empty description="Списки специалистов появятся после добавления API" />
-            </div>
+            {loadingSpecialists && <div className="home-loading"><Spin /></div>}
+            {!loadingSpecialists && specialists.length === 0 && (
+              <div className="home-empty"><Empty description="Нет специалистов по заданным критериям" /></div>
+            )}
+            {specialists.slice(0, 6).map((specialist) => (
+              <Link className="home-card-link" to={`/profile/${specialist.id}`} key={`skill-${specialist.id}`}>
+                <article className="home-skill-card home-specialist-card">
+                  <div className="home-specialist-head">
+                    <Avatar
+                      size={44}
+                      src={specialist.avatar_url ? `${apiBaseUrl}${specialist.avatar_url}` : undefined}
+                    />
+                    <div className="home-skill-title">{specialist.username || "Специалист"}</div>
+                  </div>
+                  <div className="home-pill-row">
+                    {specialist.skills.map((skill) => <Tag key={skill}>{skill}</Tag>)}
+                  </div>
+                </article>
+              </Link>
+            ))}
           </div>
         )}
       </section>

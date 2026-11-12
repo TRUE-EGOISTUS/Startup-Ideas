@@ -541,6 +541,7 @@ export function ProfilePage() {
                     Тип приглашаемого участника: {publicUser.role === "company" ? "Компания" : "Специалист"}
                   </Typography.Text>
                   <Select
+                    className="project-invite-select"
                     placeholder="Выберите проект"
                     value={inviteProjectId}
                     onChange={(projectId) => {
@@ -559,6 +560,7 @@ export function ProfilePage() {
                     Доступные роли для этого типа участника
                   </Typography.Text>
                   <Select
+                    className="project-invite-select project-invite-role-select"
                     mode="tags"
                     maxCount={1}
                     value={inviteRole ? [inviteRole] : []}

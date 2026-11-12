@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Response
 from pydantic import EmailStr
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, or_
 from app.database import get_db
-from app.models import User, UserRole, VerificationStatus, CompanyProfile, ModeratorInvitation
+from app.models import (
+    User, UserRole, VerificationStatus, CompanyProfile, SpecialistProfile,
+    TaskResponseModel, TaskExecution, ModeratorInvitation,
+)
 from app.auth import (
     get_current_user,
     verify_password,
@@ -15,9 +19,10 @@ from app.schemas.user import (
     UserRead, UserUpdate, ChangePasswordRequest,
     SpecialistProfileRead, CompanyProfileRead, 
     SpecialistProfileUpdate, CompanyProfileUpdate,
-    PublicUserRead, AdminCompanyRead, AdminUserRead)
+    PublicUserRead, AdminCompanyRead, AdminUserRead, SpecialistHomeRead)
 from app.auth import send_moderator_invitation_email
 from app.notifications import add_notification
+from app.skill_tags import skill_tag_list
 from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
@@ -252,6 +257,64 @@ def remove_uploaded_file(image_url: str | None) -> None:
 def get_me(current_user: User = Depends(get_current_user)):
     """Получить информацию о текущем пользователе"""
     return current_user
+
+@router.get("/specialists/home", response_model=list[SpecialistHomeRead])
+def list_home_specialists(
+    search: str | None = Query(None, max_length=100),
+    skill: str | None = Query(None, max_length=100),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    week_start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    query = (
+        db.query(User)
+        .join(SpecialistProfile, SpecialistProfile.user_id == User.id)
+        .filter(User.role == UserRole.SPECIALIST, User.is_active.is_(True))
+        .options(selectinload(User.specialist_profile))
+    )
+    if search:
+        for term in search.strip().split():
+            pattern = f"%{term}%"
+            query = query.filter(or_(
+                User.username.ilike(pattern),
+                SpecialistProfile.skills.ilike(pattern),
+                SpecialistProfile.bio.ilike(pattern),
+            ))
+
+    users = query.limit(100).all()
+    requested_skill = skill.strip().casefold() if skill else None
+    result = []
+    for user in users:
+        profile = user.specialist_profile
+        skills = skill_tag_list(profile.skills if profile else None)
+        if requested_skill and requested_skill not in skills:
+            continue
+        responses = db.query(func.count(TaskResponseModel.id)).filter(
+            TaskResponseModel.user_id == user.id,
+            TaskResponseModel.created_at >= week_start,
+        ).scalar() or 0
+        executions = db.query(func.count(TaskExecution.id)).filter(
+            TaskExecution.user_id == user.id,
+            TaskExecution.created_at >= week_start,
+        ).scalar() or 0
+        ratings = db.query(func.avg(TaskExecution.rating)).filter(
+            TaskExecution.user_id == user.id,
+            TaskExecution.rating.isnot(None),
+            TaskExecution.created_at >= week_start,
+        ).scalar()
+        result.append(SpecialistHomeRead(
+            id=user.id,
+            username=user.username,
+            skills=skills,
+            avatar_url=profile.avatar_url if profile else None,
+            weekly_activity=int(responses + executions),
+            weekly_rating=round(float(ratings), 1) if ratings is not None else None,
+        ))
+
+    result.sort(key=lambda item: (item.weekly_activity, item.weekly_rating or 0), reverse=True)
+    return result[:12]
 
 @router.get("/admin/company-verifications", response_model=list[AdminCompanyRead])
 def list_company_verifications(

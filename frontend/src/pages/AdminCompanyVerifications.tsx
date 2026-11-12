@@ -512,7 +512,7 @@ export function AdminCompanyVerificationsPage() {
   return (
     <>
       <Space align="center" className="mb-4">
-        <Typography.Title level={2} style={{ color: "#fff", margin: 0 }}>
+        <Typography.Title level={2} className="page-title">
           Панель администратора
         </Typography.Title>
       </Space>

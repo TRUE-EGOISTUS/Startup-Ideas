@@ -146,3 +146,12 @@ export type PublicUser = {
     contact_info: string | null;
   } | null;
 };
+
+export type HomeSpecialist = {
+  id: number;
+  username: string | null;
+  skills: string[];
+  avatar_url: string | null;
+  weekly_activity: number;
+  weekly_rating: number | null;
+};
