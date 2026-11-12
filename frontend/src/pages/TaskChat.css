@@ -222,6 +222,21 @@
   gap: 8px;
 }
 
+.task-chat-page .ant-btn-primary:disabled {
+  color: #FFFFFF !important;
+  background: var(--app-accent) !important;
+  border-color: var(--app-accent) !important;
+  opacity: 1;
+  box-shadow: none;
+}
+
+.task-chat-page .ant-btn-primary.ant-btn-background-ghost:disabled {
+  color: var(--app-accent) !important;
+  background: transparent !important;
+  border-color: var(--app-accent) !important;
+  opacity: 1;
+}
+
 .task-chat-composer-footer {
   display: flex;
   align-items: center;

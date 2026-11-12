@@ -55,6 +55,10 @@ export function MainLayout() {
     api.get<Notification[]>("/notifications").then(({ data }) => setNotifications(data));
   }, [user]);
 
+  const toggleTheme = () => {
+    setDarkMode((current) => !current);
+  };
+
   const markNotificationRead = async (notification: Notification) => {
     if (!notification.is_read) {
       await api.patch(`/notifications/${notification.id}/read`);
@@ -135,10 +139,10 @@ export function MainLayout() {
   
   <Space className="app-header-actions">
     <Button
-      className="theme-toggle"
+      className={`theme-toggle${darkMode ? " is-dark" : ""}`}
       type="text"
       icon={darkMode ? <SunOutlined /> : <MoonOutlined />}
-      onClick={() => setDarkMode((current) => !current)}
+      onClick={toggleTheme}
       aria-label={darkMode ? "Включить светлую тему" : "Включить темную тему"}
       title={darkMode ? "Светлая тема" : "Темная тема"}
     />
@@ -176,10 +180,10 @@ export function MainLayout() {
         />
         <div className="app-mobile-actions">
           <Button
-            className="theme-toggle theme-toggle-mobile"
+            className={`theme-toggle theme-toggle-mobile${darkMode ? " is-dark" : ""}`}
             type="text"
             icon={darkMode ? <SunOutlined /> : <MoonOutlined />}
-            onClick={() => setDarkMode((current) => !current)}
+            onClick={toggleTheme}
           >
             {darkMode ? "Светлая тема" : "Темная тема"}
           </Button>
