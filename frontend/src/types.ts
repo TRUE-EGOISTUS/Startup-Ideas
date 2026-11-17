@@ -114,6 +114,12 @@ export type Message = {
   created_at: string;
   sender_name?: string | null;
   sender_avatar_url?: string | null;
+  reply_to_id?: number | null;
+  system_type?: string | null;
+  read_at?: string | null;
+  is_pinned?: boolean;
+  attachment_url?: string | null;
+  attachment_name?: string | null;
 };
 // ... (существующие типы)
 

@@ -15,6 +15,7 @@ import {
   SunOutlined
 } from "@ant-design/icons";
 import { useAuthStore } from "../store/auth";
+import { useThemeStore } from "../store/theme";
 import { api } from "../lib/api";
 
 const { Header, Content } = Layout;
@@ -31,17 +32,10 @@ type Notification = {
 export function MainLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, loadMe, logout } = useAuthStore();
+  const { user, loadMe } = useAuthStore();
+  const { dark, toggle } = useThemeStore();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("junion-theme") === "dark");
-
-  useEffect(() => {
-    const themeClass = "dark-theme";
-    document.documentElement.classList.toggle(themeClass, darkMode);
-    document.body.classList.toggle(themeClass, darkMode);
-    localStorage.setItem("junion-theme", darkMode ? "dark" : "light");
-  }, [darkMode]);
 
   useEffect(() => {
     loadMe();
@@ -54,10 +48,6 @@ export function MainLayout() {
     }
     api.get<Notification[]>("/notifications").then(({ data }) => setNotifications(data));
   }, [user]);
-
-  const toggleTheme = () => {
-    setDarkMode((current) => !current);
-  };
 
   const markNotificationRead = async (notification: Notification) => {
     if (!notification.is_read) {
@@ -104,12 +94,12 @@ export function MainLayout() {
   );
 
   const handleLogout = async () => {
-    await logout();
+    await useAuthStore.getState().logout();
     navigate("/login");
   };
 
   return (
-    <Layout className={`min-h-screen app-shell${darkMode ? " dark-theme" : ""}`}>
+    <Layout className={`min-h-screen app-shell`}>
   <Header className="app-header flex items-center justify-between">
   <Space className="app-header-left">
     <Button
@@ -139,12 +129,12 @@ export function MainLayout() {
   
   <Space className="app-header-actions">
     <Button
-      className={`theme-toggle${darkMode ? " is-dark" : ""}`}
+      className={`theme-toggle${dark ? " is-dark" : ""}`}
       type="text"
-      icon={darkMode ? <SunOutlined /> : <MoonOutlined />}
-      onClick={toggleTheme}
-      aria-label={darkMode ? "Включить светлую тему" : "Включить темную тему"}
-      title={darkMode ? "Светлая тема" : "Темная тема"}
+      icon={dark ? <SunOutlined /> : <MoonOutlined />}
+      onClick={toggle}
+      aria-label={dark ? "Включить светлую тему" : "Включить темную тему"}
+      title={dark ? "Светлая тема" : "Темная тема"}
     />
     {user ? (
       <>
@@ -180,12 +170,12 @@ export function MainLayout() {
         />
         <div className="app-mobile-actions">
           <Button
-            className={`theme-toggle theme-toggle-mobile${darkMode ? " is-dark" : ""}`}
+            className={`theme-toggle theme-toggle-mobile${dark ? " is-dark" : ""}`}
             type="text"
-            icon={darkMode ? <SunOutlined /> : <MoonOutlined />}
-            onClick={toggleTheme}
+            icon={dark ? <SunOutlined /> : <MoonOutlined />}
+            onClick={toggle}
           >
-            {darkMode ? "Светлая тема" : "Темная тема"}
+            {dark ? "Светлая тема" : "Темная тема"}
           </Button>
           {user ? (
             <>

@@ -1,19 +1,39 @@
 from uuid import UUID
 from pydantic import BaseModel, computed_field
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 
 class MessageCreate(BaseModel):
     text: str
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    reply_to_id: Optional[int] = None
+
+class ReactionCreate(BaseModel):
+    emoji: str
+
+class ReactionSummary(BaseModel):
+    emoji: str
+    count: int
+    user_ids: List[int]
+
+    class Config:
+        from_attributes = True
 
 class MessageOut(BaseModel):
     id: int
     task_id: UUID
     user_id: int
     text: str
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    reply_to_id: Optional[int] = None
+    system_type: Optional[str] = None
+    read_at: Optional[datetime] = None
     created_at: datetime   # UTC
     sender_name: Optional[str] = None
     sender_avatar_url: Optional[str] = None
+    reactions: List[ReactionSummary] = []
 
     @computed_field
     @property
@@ -26,16 +46,24 @@ class MessageOut(BaseModel):
 
 class ProjectMessageCreate(BaseModel):
     text: str
+    reply_to_id: Optional[int] = None
+    channel: str = "general"
 
 class ProjectMessageOut(BaseModel):
     id: int
     project_id: UUID
     user_id: int
     text: str
+    channel: str = "general"
     is_announcement: bool = False
+    is_pinned: bool = False
+    reply_to_id: Optional[int] = None
+    system_type: Optional[str] = None
+    read_at: Optional[datetime] = None
     created_at: datetime
     sender_name: Optional[str] = None
     sender_avatar_url: Optional[str] = None
+    reactions: List[ReactionSummary] = []
 
     @computed_field
     @property

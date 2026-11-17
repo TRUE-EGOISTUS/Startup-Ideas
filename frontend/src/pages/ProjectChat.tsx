@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button, Card, Input, Tag, Typography, message } from "antd";
+import { Button, Card, Input, Select, Tag, Typography, message } from "antd";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import type { Message, Project } from "../types";
+import type { Message, Project, ProjectMember } from "../types";
 import { useAuthStore } from "../store/auth";
 import "./TaskChat.css";
 
@@ -14,6 +14,8 @@ type ProjectChatMessage = Message & {
   localId: string;
   deliveryStatus?: DeliveryStatus;
   is_announcement?: boolean;
+  is_pinned?: boolean;
+  channel?: string;
 };
 type SocketPayload = ProjectChatMessage & { type?: string; client_id?: string };
 
@@ -80,6 +82,13 @@ function resolveAvatarUrl(value?: string | null) {
   return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
 }
 
+function resolveAttachmentUrl(value?: string | null) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  const baseUrl = api.defaults.baseURL || window.location.origin;
+  return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
+}
+
 export function ProjectChatPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -87,7 +96,11 @@ export function ProjectChatPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [messagesData, setMessagesData] = useState<ProjectChatMessage[]>([]);
   const [announcements, setAnnouncements] = useState<ProjectChatMessage[]>([]);
+  const [members, setMembers] = useState<ProjectMember[]>([]);
   const [text, setText] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [channel, setChannel] = useState("general");
+  const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
   const [projectLoading, setProjectLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(true);
@@ -127,6 +140,16 @@ export function ProjectChatPage() {
       message.error("Не удалось загрузить проект");
     } finally {
       if (generation === generationRef.current) setProjectLoading(false);
+    }
+  };
+
+  const loadMembers = async () => {
+    if (!projectId) return;
+    try {
+      const { data } = await api.get<ProjectMember[]>(`/ideas/projects/${projectId}/members`);
+      setMembers(data);
+    } catch {
+      message.error("Не удалось загрузить участников проекта");
     }
   };
 
@@ -221,7 +244,9 @@ export function ProjectChatPage() {
     setProjectLoading(true);
     setMessagesLoading(true);
     void loadProject();
+    void loadMembers();
     void loadMessages();
+    void api.post(`/projects/${projectId}/messages/read`).catch(() => undefined);
     void loadAnnouncements();
 
     const pollMessages = () => {
@@ -367,7 +392,7 @@ export function ProjectChatPage() {
     const socket = websocketRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       try {
-        socket.send(JSON.stringify({ text: messageText, client_id: localId }));
+        socket.send(JSON.stringify({ text: messageText, channel, client_id: localId }));
       } catch {
         markDeliveryError(localId);
         return;
@@ -377,7 +402,7 @@ export function ProjectChatPage() {
       return;
     }
     try {
-      const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText });
+      const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText, channel });
       const serverMessage: ProjectChatMessage = { ...data, localId: String(data.id) };
       setMessagesData((current) =>
         current.some((item) => item.id === data.id)
@@ -398,12 +423,21 @@ export function ProjectChatPage() {
     shouldStickToBottomRef.current = true;
     setMessagesData((current) => [...current, {
       id: optimisticId, localId, project_id: projectId, user_id: user?.id ?? 0, text: messageText,
-      created_at: new Date().toISOString(), sender_name: user?.username || user?.email || "Вы", deliveryStatus: "sending"
+      created_at: new Date().toISOString(), sender_name: user?.username || user?.email || "Вы", channel, deliveryStatus: "sending"
     }]);
     setText("");
     setSending(true);
     try {
-      await deliverMessage(localId, messageText);
+      if (attachmentFile) {
+        const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText, channel });
+        const formData = new FormData();
+        formData.append("file", attachmentFile);
+        const attachmentResponse = await api.post<Message>(`/projects/${projectId}/messages/${data.id}/attachment`, formData);
+        setMessagesData((current) => current.map((item) => item.localId === localId ? { ...attachmentResponse.data, localId: String(data.id) } : item));
+        setAttachmentFile(null);
+      } else {
+        await deliverMessage(localId, messageText);
+      }
     } finally {
       setSending(false);
     }
@@ -437,6 +471,42 @@ export function ProjectChatPage() {
     void deliverMessage(item.localId, item.text);
   };
 
+  const toggleReaction = async (item: ProjectChatMessage) => {
+    if (!projectId || item.id < 0) return;
+    try {
+      await api.post(`/projects/${projectId}/messages/${item.id}/reactions`, { emoji: "👍" });
+    } catch {
+      message.error("Не удалось изменить реакцию");
+    }
+  };
+
+  const searchMessages = async (value: string) => {
+    if (!projectId) return;
+    const query = value.trim();
+    if (!query) {
+      void loadMessages({ force: true });
+      return;
+    }
+    try {
+      const { data } = await api.get<Message[]>(`/projects/${projectId}/messages`, { params: { search: query, limit: 200 } });
+      setMessagesData(data.map((item) => ({ ...item, localId: String(item.id) })));
+    } catch {
+      message.error("Не удалось выполнить поиск");
+    }
+  };
+
+  const togglePinnedAnnouncement = async (item: ProjectChatMessage) => {
+    if (!projectId) return;
+    try {
+      const { data } = await api.post<ProjectChatMessage>(`/projects/${projectId}/messages/${item.id}/pin`);
+      setAnnouncements((current) => current.map((announcement) =>
+        announcement.id === data.id ? { ...announcement, ...data, localId: String(data.id) } : announcement
+      ));
+    } catch {
+      message.error("Не удалось изменить закрепление");
+    }
+  };
+
   if (projectLoading) return <Card loading><Typography.Text>Загрузка чата...</Typography.Text></Card>;
 
   const isProjectOwner = !!user?.id && project?.created_by === user.id;
@@ -457,6 +527,23 @@ export function ProjectChatPage() {
                 <Tag color="gold">Объявление</Tag>
                 <span className="task-chat-text">{messageContent(item.text)}</span>
                 <span>{timeLabel(item.created_at)}</span>
+                {isProjectOwner && (
+                  <Button type="text" size="small" onClick={() => void togglePinnedAnnouncement(item)}>
+                    {item.is_pinned ? "Открепить" : "Закрепить"}
+                  </Button>
+                )}
+                {members.length > 0 && (
+                  <Card title={`Участники проекта (${members.length})`} size="small">
+                    <div className="task-chat-members">
+                      {members.map((member) => (
+                        <Link key={member.id} to={`/profile/${member.user_id}`} className="task-chat-member">
+                          <span>{member.username || `User ${member.user_id}`}</span>
+                          {member.role && <Tag>{member.role}</Tag>}
+                        </Link>
+                      ))}
+                    </div>
+                  </Card>
+                )}
               </div>
             ))}
           </Card>
@@ -473,6 +560,22 @@ export function ProjectChatPage() {
           <div className="task-chat-context">
             <span>Участники проекта</span>
             <span>Сообщения обновляются в реальном времени</span>
+            <Select
+              value={channel}
+              onChange={setChannel}
+              options={[
+                { value: "general", label: "# general" },
+                { value: "development", label: "# development" },
+                { value: "design", label: "# design" },
+              ]}
+            />
+            <Input.Search
+              value={searchText}
+              allowClear
+              placeholder="Поиск по истории"
+              onChange={(event) => setSearchText(event.target.value)}
+              onSearch={(value) => void searchMessages(value)}
+            />
           </div>
           <div ref={streamRef} className="task-chat-stream" onScroll={() => {
             const stream = streamRef.current;
@@ -487,7 +590,7 @@ export function ProjectChatPage() {
               if (oldest) void loadMessages({ beforeId: oldest.id });
             }} loading={messagesLoading}>Загрузить предыдущие сообщения</Button>}
             {messagesData.length === 0 && !messagesLoading && <Typography.Text type="secondary">Сообщений пока нет</Typography.Text>}
-            {messagesData.map((item, index) => {
+            {messagesData.filter((item) => !item.channel || item.channel === channel).map((item, index) => {
               const previous = messagesData[index - 1];
               const mine = item.user_id === user?.id;
               const grouped = !!previous && previous.user_id === item.user_id && dateKey(previous.created_at) === dateKey(item.created_at);
@@ -502,11 +605,16 @@ export function ProjectChatPage() {
                   <div className="task-chat-group">
                     {!grouped && !mine && <div className="task-chat-author">{author}</div>}
                     <div className={`task-chat-bubble ${item.deliveryStatus === "sending" ? "task-chat-bubble--sending" : ""} ${item.deliveryStatus === "error" ? "task-chat-bubble--error" : ""}`}>
+                      {(item.is_announcement || item.is_pinned) && <div className="task-chat-system-label">{item.is_pinned ? "Закреплённое объявление" : "Объявление"}</div>}
+                      {item.reply_to_id && <div className="task-chat-reply-preview">Ответ на сообщение #{item.reply_to_id}</div>}
+                      {item.system_type && <div className="task-chat-system-label">{item.system_type}</div>}
                       <div className="task-chat-text">{messageContent(item.text)}</div>
+                      {item.attachment_url && <a className="task-chat-attachment" href={resolveAttachmentUrl(item.attachment_url) || "#"} target="_blank" rel="noopener noreferrer">📎 {item.attachment_name || "Вложение"}</a>}
+                      <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => void toggleReaction(item)}>👍</Button>
                       <div className="task-chat-meta">
                         {item.deliveryStatus === "sending" && <span>Отправляется...</span>}
                         {item.deliveryStatus === "error" && <><span className="task-chat-error">Ошибка</span><Button type="link" size="small" onClick={() => retryMessage(item)}>Повторить</Button></>}
-                        {!item.deliveryStatus && <span>{timeLabel(item.created_at)}</span>}
+                        {!item.deliveryStatus && <span>{timeLabel(item.created_at)}{mine && item.read_at ? " · Прочитано" : ""}</span>}
                       </div>
                     </div>
                   </div>
@@ -528,6 +636,8 @@ export function ProjectChatPage() {
               }}
               placeholder="Напишите сообщение" />
             <div className="task-chat-composer-footer">
+              <label className="task-chat-file-picker">📎 Прикрепить файл<input type="file" onChange={(event) => setAttachmentFile(event.target.files?.[0] || null)} /></label>
+              {attachmentFile && <span className="task-chat-attachment-name">{attachmentFile.name}</span>}
               <span className="task-chat-counter">{text.length}/{CHAT_MAX_LENGTH} · Enter - отправить, Shift+Enter - новая строка</span>
               <Button type="primary" size="large" loading={sending} disabled={!text.trim() || text.length > CHAT_MAX_LENGTH} onClick={() => void onSendMessage()}>Отправить</Button>
             </div>
