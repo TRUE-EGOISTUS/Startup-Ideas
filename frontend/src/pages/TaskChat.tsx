@@ -7,8 +7,10 @@ import { useAuthStore } from "../store/auth";
 import "./TaskChat.css";
 
 const CHAT_MAX_LENGTH = 2000;
+const SEND_ACK_TIMEOUT_MS = 10000;
 type DeliveryStatus = "sending" | "error";
 type ChatMessage = Message & { localId: string; deliveryStatus?: DeliveryStatus };
+type ReplyTarget = { messageId: number; text: string; author: string };
 
 function parseUtcDate(value: string) {
   return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`);
@@ -71,6 +73,13 @@ function resolveAvatarUrl(value?: string | null) {
   return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
 }
 
+function resolveAttachmentUrl(value?: string | null) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  const baseUrl = api.defaults.baseURL || window.location.origin;
+  return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
+}
+
 export function TaskChatPage() {
   const { taskId } = useParams();
   const navigate = useNavigate();
@@ -79,33 +88,44 @@ export function TaskChatPage() {
   const [assignedExecutor, setAssignedExecutor] = useState<PublicUser | null>(null);
   const [messagesData, setMessagesData] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [searchText, setSearchText] = useState("");
   const [taskLoading, setTaskLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [websocketConnected, setWebsocketConnected] = useState(false);
   const [showNewMessages, setShowNewMessages] = useState(false);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
   const lastMessageIdRef = useRef<number | null>(null);
   const messagesRequestRef = useRef(false);
-  const streamRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const previousLastIdRef = useRef<number | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const websocketConnectedRef = useRef(false);
   const websocketReconnectRef = useRef<number | null>(null);
+  const generationRef = useRef(0);
+  const preserveScrollRef = useRef<{ top: number; height: number } | null>(null);
 
   const loadTask = async () => {
     if (!taskId) {
       return;
     }
+    const generation = generationRef.current;
     setTaskLoading(true);
     try {
       const { data } = await api.get<Task>(`/tasks/${taskId}`);
+      if (generation !== generationRef.current) return;
       setTask(data);
     } catch {
-      message.error("Не удалось загрузить задачу");
+      if (generation === generationRef.current) {
+        message.error("Не удалось загрузить задачу");
+      }
     } finally {
-      setTaskLoading(false);
+      if (generation === generationRef.current) {
+        setTaskLoading(false);
+      }
     }
   };
 
@@ -121,6 +141,7 @@ export function TaskChatPage() {
       return;
     }
     messagesRequestRef.current = true;
+    const generation = generationRef.current;
     if (!options.silent) {
       setMessagesLoading(true);
     }
@@ -133,7 +154,15 @@ export function TaskChatPage() {
         }
       });
 
+      // Ответ от предыдущей задачи не должен попасть в чат текущей
+      if (generation !== generationRef.current) return;
+
       if (options.beforeId !== undefined) {
+        const isOlder = true;
+        if (isOlder) {
+          const stream = streamRef.current;
+          preserveScrollRef.current = stream ? { top: stream.scrollTop, height: stream.scrollHeight } : null;
+        }
         setMessagesData((current) => {
           const knownIds = new Set(current.map((item) => item.id));
           return [...data.filter((item) => !knownIds.has(item.id)).map((item) => ({ ...item, localId: String(item.id) })), ...current];
@@ -153,12 +182,12 @@ export function TaskChatPage() {
         lastMessageIdRef.current = data[data.length - 1].id;
       }
     } catch {
-      if (!options.silent) {
+      if (generation === generationRef.current && !options.silent) {
         message.error("Не удалось загрузить сообщения");
       }
     } finally {
       messagesRequestRef.current = false;
-      if (!options.silent) {
+      if (generation === generationRef.current && !options.silent) {
         setMessagesLoading(false);
       }
     }
@@ -169,12 +198,29 @@ export function TaskChatPage() {
       return;
     }
 
+    let disposed = false;
+    generationRef.current += 1;
+
+    // Сброс состояния предыдущей задачи
     lastMessageIdRef.current = null;
+    previousLastIdRef.current = null;
+    shouldStickToBottomRef.current = true;
+    preserveScrollRef.current = null;
+    messagesRequestRef.current = false;
+    setTask(null);
+    setAssignedExecutor(null);
+    setMessagesData([]);
+    setHasOlderMessages(false);
+    setShowNewMessages(false);
+    setTaskLoading(true);
+    setMessagesLoading(true);
+
     void loadTask();
     void loadMessages();
+    void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
 
     const pollMessages = () => {
-      if (document.visibilityState !== "visible" || websocketConnectedRef.current) return;
+      if (disposed || document.visibilityState !== "visible" || websocketConnectedRef.current) return;
       void loadMessages(
         lastMessageIdRef.current === null
           ? { silent: true }
@@ -183,23 +229,35 @@ export function TaskChatPage() {
     };
 
     const websocketBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/^http/, "ws");
-    let disposed = false;
     const connectWebSocket = () => {
       if (disposed || document.visibilityState !== "visible") return;
+      const existing = websocketRef.current;
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return;
+      if (websocketReconnectRef.current !== null) {
+        window.clearTimeout(websocketReconnectRef.current);
+        websocketReconnectRef.current = null;
+      }
       const socket = new WebSocket(`${websocketBase}/tasks/${taskId}/messages/ws`);
       websocketRef.current = socket;
       socket.onopen = () => {
+        if (socket !== websocketRef.current) return;
         websocketConnectedRef.current = true;
         setWebsocketConnected(true);
       };
       socket.onmessage = (event) => {
-        const payload = JSON.parse(event.data) as Message & { type?: string };
+        if (socket !== websocketRef.current) return;
+        const payload = JSON.parse(event.data) as Message & { type?: string; client_id?: string };
         if (payload.type !== "message") return;
         setMessagesData((current) => {
           if (current.some((item) => item.id === payload.id)) return current;
-          const pendingIndex = current.findIndex((item) =>
-            item.deliveryStatus === "sending" && item.user_id === payload.user_id && item.text === payload.text
-          );
+          let pendingIndex = payload.client_id
+            ? current.findIndex((item) => item.deliveryStatus === "sending" && item.localId === payload.client_id)
+            : -1;
+          if (pendingIndex < 0) {
+            pendingIndex = current.findIndex((item) =>
+              item.deliveryStatus === "sending" && item.user_id === payload.user_id && item.text === payload.text
+            );
+          }
           const serverMessage = { ...payload, localId: String(payload.id), deliveryStatus: undefined } as ChatMessage;
           if (pendingIndex >= 0) {
             const next = [...current];
@@ -211,6 +269,9 @@ export function TaskChatPage() {
         lastMessageIdRef.current = payload.id;
       };
       socket.onclose = () => {
+        // Закрытие старого сокета не должно трогать состояние нового
+        if (socket !== websocketRef.current) return;
+        websocketRef.current = null;
         websocketConnectedRef.current = false;
         setWebsocketConnected(false);
         if (!disposed && document.visibilityState === "visible") {
@@ -222,8 +283,9 @@ export function TaskChatPage() {
     connectWebSocket();
     const pollingId = window.setInterval(pollMessages, 4000);
     const handleVisibilityChange = () => {
+      if (disposed) return;
       if (document.visibilityState === "visible") {
-        if (!websocketConnectedRef.current) connectWebSocket();
+        connectWebSocket();
         pollMessages();
       }
     };
@@ -239,6 +301,7 @@ export function TaskChatPage() {
       websocketRef.current?.close();
       websocketRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
   useEffect(() => {
@@ -246,9 +309,11 @@ export function TaskChatPage() {
       setAssignedExecutor(null);
       return;
     }
+    let disposed = false;
     getUserPublic(task.assigned_to_id)
-      .then(({ data }) => setAssignedExecutor(data))
-      .catch(() => setAssignedExecutor(null));
+      .then(({ data }) => { if (!disposed) setAssignedExecutor(data); })
+      .catch(() => { if (!disposed) setAssignedExecutor(null); });
+    return () => { disposed = true; };
   }, [task?.assigned_to_id]);
 
   const canChat = !!task && !!user &&
@@ -274,12 +339,58 @@ export function TaskChatPage() {
     previousLastIdRef.current = latestId;
   }, [messagesData.length]);
 
+  useEffect(() => {
+    // Подгрузили старые сообщения — сохраняем позицию, чтобы список не "прыгал"
+    const preserve = preserveScrollRef.current;
+    if (preserve) {
+      preserveScrollRef.current = null;
+      const stream = streamRef.current;
+      if (stream) stream.scrollTop = preserve.top + (stream.scrollHeight - preserve.height);
+    }
+  });
+
   const handleStreamScroll = () => {
     const stream = streamRef.current;
     if (!stream) return;
     const nearBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
     shouldStickToBottomRef.current = nearBottom;
     if (nearBottom) setShowNewMessages(false);
+  };
+
+  const markDeliveryError = (localId: string) => {
+    setMessagesData((current) =>
+      current.map((item) => item.localId === localId && item.deliveryStatus === "sending"
+        ? { ...item, deliveryStatus: "error" }
+        : item)
+    );
+  };
+
+  const deliverMessage = async (localId: string, messageText: string) => {
+    if (!taskId) return;
+    const socket = websocketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ text: messageText, client_id: localId }));
+      } catch {
+        markDeliveryError(localId);
+        return;
+      }
+      // Если сервер не подтвердил сообщение — не оставляем его в "Отправляется..." навсегда
+      window.setTimeout(() => markDeliveryError(localId), SEND_ACK_TIMEOUT_MS);
+      return;
+    }
+    try {
+      const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText });
+      const serverMessage: ChatMessage = { ...data, localId: String(data.id) };
+      setMessagesData((current) =>
+        current.some((item) => item.id === data.id)
+          ? current.filter((item) => item.localId !== localId)
+          : current.map((item) => item.localId === localId ? serverMessage : item)
+      );
+      lastMessageIdRef.current = data.id;
+    } catch {
+      markDeliveryError(localId);
+    }
   };
 
   const onSendMessage = async () => {
@@ -302,13 +413,22 @@ export function TaskChatPage() {
     setText("");
     setSending(true);
     try {
-      if (websocketConnected && websocketRef.current?.readyState === WebSocket.OPEN) {
-        websocketRef.current.send(JSON.stringify({ text: messageText, client_id: localId }));
+      if (websocketConnected && websocketRef.current?.readyState === WebSocket.OPEN && !attachmentFile) {
+        await deliverMessage(localId, messageText);
       } else {
-        const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText });
-        setMessagesData((current) => current.map((item) => item.localId === localId ? { ...data, localId: String(data.id) } : item));
+        const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText, reply_to_id: replyTo?.messageId });
+        let result = data;
+        if (attachmentFile) {
+          const formData = new FormData();
+          formData.append("file", attachmentFile);
+          const attachmentResponse = await api.post<Message>(`/tasks/${taskId}/messages/${data.id}/attachment`, formData);
+          result = attachmentResponse.data;
+        }
+        setMessagesData((current) => current.map((item) => item.localId === localId ? { ...result, localId: String(result.id) } : item));
         lastMessageIdRef.current = data.id;
       }
+      setAttachmentFile(null);
+      setReplyTo(null);
     } catch {
       setMessagesData((current) => current.map((item) => item.localId === localId ? { ...item, deliveryStatus: "error" } : item));
     } finally {
@@ -319,6 +439,53 @@ export function TaskChatPage() {
   const retryMessage = (item: ChatMessage) => {
     setMessagesData((current) => current.filter((messageItem) => messageItem.localId !== item.localId));
     setText(item.text);
+    if (item.reply_to_id) {
+      const originalMessage = messagesData.find(m => m.id === item.reply_to_id);
+      if (originalMessage) {
+        setReplyTo({
+          messageId: originalMessage.id,
+          text: originalMessage.text.substring(0, 100),
+          author: originalMessage.sender_name || `User ${originalMessage.user_id}`
+        });
+      }
+    }
+  };
+
+  const searchMessages = async (value: string) => {
+    if (!taskId) return;
+    const query = value.trim();
+    if (!query) {
+      void loadMessages();
+      return;
+    }
+    try {
+      const { data } = await api.get<Message[]>(`/tasks/${taskId}/messages`, { params: { search: query, limit: 200 } });
+      setMessagesData(data.map((item) => ({ ...item, localId: String(item.id) })));
+    } catch {
+      message.error("Не удалось выполнить поиск");
+    }
+  };
+
+  const toggleReaction = async (item: ChatMessage) => {
+    if (!taskId || item.id < 0) return;
+    try {
+      await api.post(`/tasks/${taskId}/messages/${item.id}/reactions`, { emoji: "👍" });
+    } catch {
+      message.error("Не удалось изменить реакцию");
+    }
+  };
+
+  const handleReply = (item: ChatMessage) => {
+    setReplyTo({
+      messageId: item.id,
+      text: item.text.substring(0, 100),
+      author: item.sender_name || `User ${item.user_id}`
+    });
+    setText("");
+  };
+
+  const cancelReply = () => {
+    setReplyTo(null);
   };
 
   if (taskLoading) {
@@ -357,6 +524,13 @@ export function TaskChatPage() {
               <Link to={`/profile/${task.author_id}`}>{task.author_email || "-"}</Link>
             )}
           </span>
+          <Input.Search
+            value={searchText}
+            allowClear
+            placeholder="Поиск по истории"
+            onChange={(event) => setSearchText(event.target.value)}
+            onSearch={(value) => void searchMessages(value)}
+          />
         </div>
         <div ref={streamRef} className="task-chat-stream" onScroll={handleStreamScroll}>
           {showNewMessages && (
@@ -395,11 +569,18 @@ export function TaskChatPage() {
                 <div className="task-chat-group">
                   {!grouped && !mine && <div className="task-chat-author">{author}</div>}
                   <div className={`task-chat-bubble ${item.deliveryStatus === "sending" ? "task-chat-bubble--sending" : ""} ${item.deliveryStatus === "error" ? "task-chat-bubble--error" : ""}`}>
+                    {item.reply_to_id && <div className="task-chat-reply-preview">Ответ на сообщение #{item.reply_to_id}</div>}
+                    {item.system_type && <div className="task-chat-system-label">{item.system_type}</div>}
                     <div className="task-chat-text">{messageContent(item.text)}</div>
+                    {item.attachment_url && <a className="task-chat-attachment" href={resolveAttachmentUrl(item.attachment_url) || "#"} target="_blank" rel="noopener noreferrer">📎 {item.attachment_name || "Вложение"}</a>}
+                    <div className="task-chat-bubble-actions">
+                      <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => void toggleReaction(item)}>👍</Button>
+                      <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => handleReply(item)}>↩</Button>
+                    </div>
                     <div className="task-chat-meta">
                       {item.deliveryStatus === "sending" && <span>Отправляется...</span>}
                       {item.deliveryStatus === "error" && <><span className="task-chat-error">Ошибка</span><Button type="link" size="small" onClick={() => retryMessage(item)}>Повторить</Button></>}
-                      {!item.deliveryStatus && <span>{timeLabel(item.created_at)}</span>}
+                      {!item.deliveryStatus && <span>{timeLabel(item.created_at)}{mine && item.read_at ? " · Прочитано" : ""}</span>}
                     </div>
                   </div>
                 </div>
@@ -411,6 +592,14 @@ export function TaskChatPage() {
         </Card>
         <Card>
         <div className="task-chat-composer">
+        {replyTo && (
+          <div className="task-chat-reply-composer">
+            <span className="task-chat-reply-label">
+              Ответ на <strong>{replyTo.author}</strong>: {replyTo.text}...
+            </span>
+            <Button type="text" size="small" onClick={cancelReply}>✕</Button>
+          </div>
+        )}
         <Input.TextArea
           rows={3}
           value={text}
@@ -425,6 +614,8 @@ export function TaskChatPage() {
           placeholder="Напишите сообщение"
         />
         <div className="task-chat-composer-footer">
+          <label className="task-chat-file-picker">📎 Прикрепить файл<input type="file" onChange={(event) => setAttachmentFile(event.target.files?.[0] || null)} /></label>
+          {attachmentFile && <span className="task-chat-attachment-name">{attachmentFile.name}</span>}
           <span className="task-chat-counter">{text.length}/{CHAT_MAX_LENGTH} · Enter - отправить, Shift+Enter - новая строка</span>
         <Button type="primary" size="large" loading={sending} disabled={!text.trim() || text.length > CHAT_MAX_LENGTH} onClick={onSendMessage}>
           Отправить

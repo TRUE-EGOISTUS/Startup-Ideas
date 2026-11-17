@@ -165,10 +165,18 @@ class Message(Base):
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
+    attachment_url = Column(String(500), nullable=True)
+    attachment_name = Column(String(255), nullable=True)
+    reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True, index=True)
+    system_type = Column(String(40), nullable=True)
+    read_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     task = relationship("Task", back_populates="messages")
     user = relationship("User", back_populates="messages")
+    reply_to = relationship("Message", remote_side=[id], back_populates="replies")
+    replies = relationship("Message", back_populates="reply_to")
+    reactions = relationship("MessageReaction", back_populates="message", cascade="all, delete-orphan")
 
     @property
     def sender_name(self):
@@ -299,11 +307,21 @@ class ProjectMessage(Base):
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
+    attachment_url = Column(String(500), nullable=True)
+    attachment_name = Column(String(255), nullable=True)
+    channel = Column(String(40), nullable=False, default="general", index=True)
     is_announcement = Column(Boolean, default=False, nullable=False)
+    is_pinned = Column(Boolean, default=False, nullable=False)
+    reply_to_id = Column(Integer, ForeignKey("project_messages.id"), nullable=True, index=True)
+    system_type = Column(String(40), nullable=True)
+    read_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     project = relationship("Project", back_populates="messages")
     user = relationship("User", back_populates="project_messages")
+    reply_to = relationship("ProjectMessage", remote_side=[id], back_populates="replies")
+    replies = relationship("ProjectMessage", back_populates="reply_to")
+    reactions = relationship("ProjectMessageReaction", back_populates="message", cascade="all, delete-orphan")
 
     @property
     def sender_name(self):
@@ -318,4 +336,32 @@ class ProjectMessage(Base):
 
     __table_args__ = (
         Index("idx_project_messages_project_id_created_at", "project_id", "created_at"),
+    )
+
+class MessageReaction(Base):
+    __tablename__ = "message_reactions"
+    id = Column(Integer, primary_key=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    emoji = Column(String(16), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    message = relationship("Message", back_populates="reactions")
+
+    __table_args__ = (
+        Index("ux_message_reactions_message_user_emoji", "message_id", "user_id", "emoji", unique=True),
+    )
+
+class ProjectMessageReaction(Base):
+    __tablename__ = "project_message_reactions"
+    id = Column(Integer, primary_key=True)
+    message_id = Column(Integer, ForeignKey("project_messages.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    emoji = Column(String(16), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    message = relationship("ProjectMessage", back_populates="reactions")
+
+    __table_args__ = (
+        Index("ux_project_message_reactions_message_user_emoji", "message_id", "user_id", "emoji", unique=True),
     )
