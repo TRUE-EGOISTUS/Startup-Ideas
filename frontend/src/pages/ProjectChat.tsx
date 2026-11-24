@@ -10,14 +10,17 @@ const CHAT_MAX_LENGTH = 2000;
 const PAGE_SIZE = 50;
 const SEND_ACK_TIMEOUT_MS = 10000;
 type DeliveryStatus = "sending" | "error";
+type ReactionSummary = { emoji: string; count: number; user_ids: number[] };
+
 type ProjectChatMessage = Message & {
   localId: string;
   deliveryStatus?: DeliveryStatus;
   is_announcement?: boolean;
   is_pinned?: boolean;
   channel?: string;
+  reactions?: ReactionSummary[];
 };
-type SocketPayload = ProjectChatMessage & { type?: string; client_id?: string };
+type SocketPayload = ProjectChatMessage & { type?: string; client_id?: string; message_id?: number; emoji?: string; user_id?: number; active?: boolean };
 
 let localCounter = 0;
 function nextLocalId() {
@@ -182,6 +185,7 @@ export function ProjectChatPage() {
         params: {
           ...(options.afterId !== undefined ? { after_id: options.afterId } : {}),
           ...(options.beforeId !== undefined ? { before_id: options.beforeId } : {}),
+          channel,
           limit: PAGE_SIZE
         }
       });
@@ -247,6 +251,10 @@ export function ProjectChatPage() {
     void loadMembers();
     void loadMessages();
     void api.post(`/projects/${projectId}/messages/read`).catch(() => undefined);
+    // Периодически помечаем как прочитанное
+    const readIntervalId = window.setInterval(() => {
+      if (!disposed) void api.post(`/projects/${projectId}/messages/read`).catch(() => undefined);
+    }, 30000);
     void loadAnnouncements();
 
     const pollMessages = () => {
@@ -289,13 +297,44 @@ export function ProjectChatPage() {
           );
           return;
         }
+
+        // Bug 15: обработка реакции
+        if (payload.type === "reaction") {
+          setMessagesData((current) => {
+            const msgId = (payload as any).message_id;
+            const emoji = (payload as any).emoji;
+            const userId = (payload as any).user_id;
+            const active = (payload as any).active;
+            const idx = current.findIndex((item) => item.id === msgId);
+            if (idx < 0) return current;
+            const next = [...current];
+            const msg = { ...next[idx] } as ProjectChatMessage;
+            const existing = msg.reactions?.find((r: ReactionSummary) => r.emoji === emoji);
+            if (active && !existing) {
+              msg.reactions = [...(msg.reactions || []), { emoji, count: 1, user_ids: [userId] }];
+            } else if (!active && existing) {
+              const updated = existing.count === 1
+                ? msg.reactions?.filter((r: ReactionSummary) => r.emoji !== emoji)
+                : msg.reactions?.map((r: ReactionSummary) =>
+                    r.emoji === emoji ? { ...r, count: r.count - 1, user_ids: r.user_ids.filter((id: number) => id !== userId) } : r
+                  );
+              msg.reactions = updated;
+            }
+            next[idx] = msg;
+            return next;
+          });
+          return;
+        }
+
         if (payload.type !== "message") return;
         setMessagesData((current) => {
           if (current.some((item) => item.id === payload.id)) return current;
+          // Ищем оптимистичное сообщение по client_id — любой статус доставки (sending или error)
           let pendingIndex = payload.client_id
             ? current.findIndex((item) => item.deliveryStatus && item.localId === payload.client_id)
             : -1;
           if (pendingIndex < 0) {
+            // Fallback: ищем по совпадению текста и пользователя
             pendingIndex = current.findIndex((item) =>
               item.deliveryStatus === "sending" && item.user_id === payload.user_id && item.text === payload.text
             );
@@ -336,6 +375,7 @@ export function ProjectChatPage() {
     return () => {
       disposed = true;
       window.clearInterval(pollingId);
+      window.clearInterval(readIntervalId);
       if (websocketReconnectRef.current !== null) {
         window.clearTimeout(websocketReconnectRef.current);
         websocketReconnectRef.current = null;
@@ -438,6 +478,12 @@ export function ProjectChatPage() {
       } else {
         await deliverMessage(localId, messageText);
       }
+    } catch {
+      // Помечаем ошибку, чтобы пользователь увидел и мог повторить отправку
+      setMessagesData((current) =>
+        current.map((item) => item.localId === localId ? { ...item, deliveryStatus: "error" as DeliveryStatus } : item)
+      );
+      message.error("Не удалось отправить сообщение");
     } finally {
       setSending(false);
     }
@@ -473,10 +519,36 @@ export function ProjectChatPage() {
 
   const toggleReaction = async (item: ProjectChatMessage) => {
     if (!projectId || item.id < 0) return;
+    // Оптимистичное обновление UI
+    const wasActive = item.reactions?.some((r) => r.emoji === "👍" && r.user_ids.includes(user?.id ?? -1));
+    setMessagesData((current) =>
+      current.map((m) => {
+        if (m.id !== item.id) return m;
+        const reactions = [...(m.reactions || [])];
+        const existing = reactions.find((r) => r.emoji === "👍");
+        if (wasActive) {
+          if (existing && existing.count === 1) {
+            return { ...m, reactions: reactions.filter((r) => r.emoji !== "👍") };
+          }
+          return { ...m, reactions: reactions.map((r) =>
+            r.emoji === "👍" ? { ...r, count: r.count - 1, user_ids: r.user_ids.filter((id) => id !== user?.id) } : r
+          )};
+        } else {
+          if (existing) {
+            return { ...m, reactions: reactions.map((r) =>
+              r.emoji === "👍" ? { ...r, count: r.count + 1, user_ids: [...r.user_ids, user?.id ?? 0] } : r
+            )};
+          }
+          return { ...m, reactions: [...reactions, { emoji: "👍", count: 1, user_ids: [user?.id ?? 0] }] };
+        }
+      })
+    );
     try {
       await api.post(`/projects/${projectId}/messages/${item.id}/reactions`, { emoji: "👍" });
-    } catch {
-      message.error("Не удалось изменить реакцию");
+    } catch (err: any) {
+      setMessagesData((current) =>
+        current.map((m) => m.id === item.id ? { ...m, reactions: item.reactions } : m)
+      );
     }
   };
 
@@ -488,7 +560,7 @@ export function ProjectChatPage() {
       return;
     }
     try {
-      const { data } = await api.get<Message[]>(`/projects/${projectId}/messages`, { params: { search: query, limit: 200 } });
+      const { data } = await api.get<Message[]>(`/projects/${projectId}/messages`, { params: { search: query, limit: 200, channel } });
       setMessagesData(data.map((item) => ({ ...item, localId: String(item.id) })));
     } catch {
       message.error("Не удалось выполнить поиск");
@@ -532,20 +604,20 @@ export function ProjectChatPage() {
                     {item.is_pinned ? "Открепить" : "Закрепить"}
                   </Button>
                 )}
-                {members.length > 0 && (
-                  <Card title={`Участники проекта (${members.length})`} size="small">
-                    <div className="task-chat-members">
-                      {members.map((member) => (
-                        <Link key={member.id} to={`/profile/${member.user_id}`} className="task-chat-member">
-                          <span>{member.username || `User ${member.user_id}`}</span>
-                          {member.role && <Tag>{member.role}</Tag>}
-                        </Link>
-                      ))}
-                    </div>
-                  </Card>
-                )}
               </div>
             ))}
+          </Card>
+        )}
+        {members.length > 0 && (
+          <Card title={`Участники проекта (${members.length})`} size="small">
+            <div className="task-chat-members">
+              {members.map((member) => (
+                <Link key={member.id} to={`/profile/${member.user_id}`} className="task-chat-member">
+                  <span>{member.username || `User ${member.user_id}`}</span>
+                  {member.role && <Tag>{member.role}</Tag>}
+                </Link>
+              ))}
+            </div>
           </Card>
         )}
         {isProjectOwner && (
@@ -590,8 +662,10 @@ export function ProjectChatPage() {
               if (oldest) void loadMessages({ beforeId: oldest.id });
             }} loading={messagesLoading}>Загрузить предыдущие сообщения</Button>}
             {messagesData.length === 0 && !messagesLoading && <Typography.Text type="secondary">Сообщений пока нет</Typography.Text>}
-            {messagesData.filter((item) => !item.channel || item.channel === channel).map((item, index) => {
-              const previous = messagesData[index - 1];
+            {messagesData
+              .filter((item) => !item.channel || item.channel === channel)
+              .map((item, index, filtered) => {
+              const previous = index > 0 ? filtered[index - 1] : null;
               const mine = item.user_id === user?.id;
               const grouped = !!previous && previous.user_id === item.user_id && dateKey(previous.created_at) === dateKey(item.created_at);
               const author = mine ? (user?.username || user?.email || "Пользователь") : item.sender_name || `User ${item.user_id}`;
@@ -610,7 +684,9 @@ export function ProjectChatPage() {
                       {item.system_type && <div className="task-chat-system-label">{item.system_type}</div>}
                       <div className="task-chat-text">{messageContent(item.text)}</div>
                       {item.attachment_url && <a className="task-chat-attachment" href={resolveAttachmentUrl(item.attachment_url) || "#"} target="_blank" rel="noopener noreferrer">📎 {item.attachment_name || "Вложение"}</a>}
-                      <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => void toggleReaction(item)}>👍</Button>
+                      <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => void toggleReaction(item)}>
+                        👍 {item.reactions?.filter((r) => r.emoji === "👍" && r.count > 0).map((r) => r.count).reduce((a, b) => a + b, 0) || 0}
+                      </Button>
                       <div className="task-chat-meta">
                         {item.deliveryStatus === "sending" && <span>Отправляется...</span>}
                         {item.deliveryStatus === "error" && <><span className="task-chat-error">Ошибка</span><Button type="link" size="small" onClick={() => retryMessage(item)}>Повторить</Button></>}

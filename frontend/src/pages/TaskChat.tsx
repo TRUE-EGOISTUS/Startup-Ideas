@@ -9,7 +9,8 @@ import "./TaskChat.css";
 const CHAT_MAX_LENGTH = 2000;
 const SEND_ACK_TIMEOUT_MS = 10000;
 type DeliveryStatus = "sending" | "error";
-type ChatMessage = Message & { localId: string; deliveryStatus?: DeliveryStatus };
+type ReactionSummary = { emoji: string; count: number; user_ids: number[] };
+type ChatMessage = Message & { localId: string; deliveryStatus?: DeliveryStatus; reactions?: ReactionSummary[] };
 type ReplyTarget = { messageId: number; text: string; author: string };
 
 function parseUtcDate(value: string) {
@@ -174,12 +175,22 @@ export function TaskChatPage() {
           return [...current, ...data.filter((item) => !knownIds.has(item.id)).map((item) => ({ ...item, localId: String(item.id) }))];
         });
       } else {
-        setMessagesData(data.map((item) => ({ ...item, localId: String(item.id) })));
+        // Полная перезагрузка: не затираем локальные неотправленные сообщения
+        setMessagesData((current) => {
+          const serverIds = new Set(data.map((item) => item.id));
+          const preserved = current.filter((item) => item.deliveryStatus && !serverIds.has(item.id));
+          return [...data.map((item) => ({ ...item, localId: String(item.id) })), ...preserved];
+        });
         setHasOlderMessages(data.length === 50);
       }
 
       if (data.length > 0 && options.beforeId === undefined) {
         lastMessageIdRef.current = data[data.length - 1].id;
+      }
+
+      // Пропущено больше одной страницы — догружаем остальное
+      if (options.afterId !== undefined && data.length === 50 && lastMessageIdRef.current !== null) {
+        void loadMessages({ afterId: lastMessageIdRef.current, silent: true });
       }
     } catch {
       if (generation === generationRef.current && !options.silent) {
@@ -217,7 +228,12 @@ export function TaskChatPage() {
 
     void loadTask();
     void loadMessages();
+    // Bug 16: помечаем как прочитанное при входе
     void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
+    // Периодически помечаем как прочитанное
+    const readIntervalId = window.setInterval(() => {
+      if (!disposed) void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
+    }, 30000);
 
     const pollMessages = () => {
       if (disposed || document.visibilityState !== "visible" || websocketConnectedRef.current) return;
@@ -243,17 +259,60 @@ export function TaskChatPage() {
         if (socket !== websocketRef.current) return;
         websocketConnectedRef.current = true;
         setWebsocketConnected(true);
+        // Подтягиваем сообщения, пропущенные пока соединения не было
+        if (lastMessageIdRef.current !== null) {
+          void loadMessages({ afterId: lastMessageIdRef.current, silent: true });
+        }
       };
       socket.onmessage = (event) => {
         if (socket !== websocketRef.current) return;
-        const payload = JSON.parse(event.data) as Message & { type?: string; client_id?: string };
+        const raw = JSON.parse(event.data);
+        const payload = raw as Message & { type?: string; client_id?: string };
+
+        // Bug 15: обработка реакции
+        if (payload.type === "reaction") {
+          setMessagesData((current) => {
+            const msgId = (payload as any).message_id;
+            const emoji = (payload as any).emoji;
+            const userId = (payload as any).user_id;
+            const active = (payload as any).active;
+            const idx = current.findIndex((item) => item.id === msgId);
+            if (idx < 0) return current;
+            const next = [...current];
+            const msg = { ...next[idx] } as ChatMessage;
+            const existing = msg.reactions?.find((r: ReactionSummary) => r.emoji === emoji);
+            if (active && !existing) {
+              msg.reactions = [...(msg.reactions || []), { emoji, count: 1, user_ids: [userId] }];
+            } else if (!active && existing) {
+              const updated = existing.count === 1
+                ? msg.reactions?.filter((r: ReactionSummary) => r.emoji !== emoji)
+                : msg.reactions?.map((r: ReactionSummary) =>
+                    r.emoji === emoji ? { ...r, count: r.count - 1, user_ids: r.user_ids.filter((id: number) => id !== userId) } : r
+                  );
+              msg.reactions = updated;
+            }
+            next[idx] = msg;
+            return next;
+          });
+          return;
+        }
+
         if (payload.type !== "message") return;
         setMessagesData((current) => {
+          // Уже есть такое сообщение — не дублируем
           if (current.some((item) => item.id === payload.id)) return current;
+          // Ищем оптимистичное сообщение по client_id или локальному id
           let pendingIndex = payload.client_id
-            ? current.findIndex((item) => item.deliveryStatus === "sending" && item.localId === payload.client_id)
+            ? current.findIndex((item) => item.localId === payload.client_id && (item.deliveryStatus === "sending" || item.deliveryStatus === "error"))
             : -1;
           if (pendingIndex < 0) {
+            // Ищем по client_id среди всех локальных (отрицательный id)
+            pendingIndex = current.findIndex((item) =>
+              item.id === -Date.parse(payload.client_id?.replace("local-", "") || "0") && (item.deliveryStatus === "sending" || item.deliveryStatus === "error")
+            );
+          }
+          if (pendingIndex < 0) {
+            // Fallback: ищем по совпадению текста и пользователя
             pendingIndex = current.findIndex((item) =>
               item.deliveryStatus === "sending" && item.user_id === payload.user_id && item.text === payload.text
             );
@@ -294,6 +353,7 @@ export function TaskChatPage() {
     return () => {
       disposed = true;
       window.clearInterval(pollingId);
+      window.clearInterval(readIntervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (websocketReconnectRef.current !== null) window.clearTimeout(websocketReconnectRef.current);
       websocketConnectedRef.current = false;
@@ -365,12 +425,12 @@ export function TaskChatPage() {
     );
   };
 
-  const deliverMessage = async (localId: string, messageText: string) => {
+  const deliverMessage = async (localId: string, messageText: string, replyToId?: number) => {
     if (!taskId) return;
     const socket = websocketRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       try {
-        socket.send(JSON.stringify({ text: messageText, client_id: localId }));
+        socket.send(JSON.stringify({ text: messageText, client_id: localId, ...(replyToId !== undefined ? { reply_to_id: replyToId } : {}) }));
       } catch {
         markDeliveryError(localId);
         return;
@@ -380,7 +440,7 @@ export function TaskChatPage() {
       return;
     }
     try {
-      const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText });
+      const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText, ...(replyToId !== undefined ? { reply_to_id: replyToId } : {}) });
       const serverMessage: ChatMessage = { ...data, localId: String(data.id) };
       setMessagesData((current) =>
         current.some((item) => item.id === data.id)
@@ -414,7 +474,7 @@ export function TaskChatPage() {
     setSending(true);
     try {
       if (websocketConnected && websocketRef.current?.readyState === WebSocket.OPEN && !attachmentFile) {
-        await deliverMessage(localId, messageText);
+        await deliverMessage(localId, messageText, replyTo?.messageId);
       } else {
         const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText, reply_to_id: replyTo?.messageId });
         let result = data;
@@ -437,6 +497,16 @@ export function TaskChatPage() {
   };
 
   const retryMessage = (item: ChatMessage) => {
+    // Если сообщение уже было сохранено на сервере (id > 0), не удаляем его — просто показываем ошибку
+    // Это может случиться, когда WS пришёл позже таймаута 10с
+    if (item.id > 0) {
+      // Сообщение существует на сервере — просто убираем статус ошибки
+      setMessagesData((current) =>
+        current.map((m) => m.localId === item.localId ? { ...m, deliveryStatus: undefined as undefined } : m)
+      );
+      return;
+    }
+    // Локальное сообщение ещё не сохранено — удаляем и восстанавливаем текст
     setMessagesData((current) => current.filter((messageItem) => messageItem.localId !== item.localId));
     setText(item.text);
     if (item.reply_to_id) {
@@ -468,10 +538,39 @@ export function TaskChatPage() {
 
   const toggleReaction = async (item: ChatMessage) => {
     if (!taskId || item.id < 0) return;
+    // Оптимистичное обновление UI
+    const wasActive = item.reactions?.some((r) => r.emoji === "👍" && r.user_ids.includes(user?.id ?? -1));
+    setMessagesData((current) =>
+      current.map((m) => {
+        if (m.id !== item.id) return m;
+        const reactions = [...(m.reactions || [])];
+        const existing = reactions.find((r) => r.emoji === "👍");
+        if (wasActive) {
+          // Убираем реакцию
+          if (existing && existing.count === 1) {
+            return { ...m, reactions: reactions.filter((r) => r.emoji !== "👍") };
+          }
+          return { ...m, reactions: reactions.map((r) =>
+            r.emoji === "👍" ? { ...r, count: r.count - 1, user_ids: r.user_ids.filter((id) => id !== user?.id) } : r
+          )};
+        } else {
+          // Добавляем реакцию
+          if (existing) {
+            return { ...m, reactions: reactions.map((r) =>
+              r.emoji === "👍" ? { ...r, count: r.count + 1, user_ids: [...r.user_ids, user?.id ?? 0] } : r
+            )};
+          }
+          return { ...m, reactions: [...reactions, { emoji: "👍", count: 1, user_ids: [user?.id ?? 0] }] };
+        }
+      })
+    );
     try {
       await api.post(`/tasks/${taskId}/messages/${item.id}/reactions`, { emoji: "👍" });
-    } catch {
-      message.error("Не удалось изменить реакцию");
+    } catch (err: any) {
+      // IntegrityError — реакция уже была/не была, откатываем UI
+      setMessagesData((current) =>
+        current.map((m) => m.id === item.id ? { ...m, reactions: item.reactions } : m)
+      );
     }
   };
 
@@ -481,7 +580,11 @@ export function TaskChatPage() {
       text: item.text.substring(0, 100),
       author: item.sender_name || `User ${item.user_id}`
     });
-    setText("");
+    // Не стираем набранный текст — просто добавляем префикс ответа
+    setText((current) => {
+      const prefix = `> @${item.sender_name || `User ${item.user_id}`} wrote:\n${item.text.substring(0, 100)}\n\n`;
+      return current ? prefix + current : prefix;
+    });
   };
 
   const cancelReply = () => {
@@ -574,7 +677,9 @@ export function TaskChatPage() {
                     <div className="task-chat-text">{messageContent(item.text)}</div>
                     {item.attachment_url && <a className="task-chat-attachment" href={resolveAttachmentUrl(item.attachment_url) || "#"} target="_blank" rel="noopener noreferrer">📎 {item.attachment_name || "Вложение"}</a>}
                     <div className="task-chat-bubble-actions">
-                      <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => void toggleReaction(item)}>👍</Button>
+                      <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => void toggleReaction(item)}>
+                        👍 {item.reactions?.filter((r) => r.emoji === "👍" && r.count > 0).map((r) => r.count).reduce((a, b) => a + b, 0) || 0}
+                      </Button>
                       <Button type="text" size="small" className="task-chat-reaction-button" onClick={() => handleReply(item)}>↩</Button>
                     </div>
                     <div className="task-chat-meta">
