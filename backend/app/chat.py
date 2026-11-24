@@ -255,9 +255,24 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                     client_id=client_id,
                 )
                 db.add(chat_message)
-                db.commit()
-                db.refresh(chat_message)
+                try:
+                    db.commit()
+                    db.refresh(chat_message)
+                except IntegrityError:
+                    db.rollback()
+                    if not client_id:
+                        raise
+                    chat_message = db.query(Message).filter(
+                        Message.task_id == task_id,
+                        Message.user_id == current_user.id,
+                        Message.client_id == client_id,
+                    ).first()
+                    if chat_message is None:
+                        raise
+                    is_new_message = False
 
+            if is_new_message:
+                # Notifications must not roll back a message that was already saved.
                 try:
                     recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
                     if recipient_id:
@@ -267,7 +282,6 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                         )
                     _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
                     db.commit()
-                    db.refresh(chat_message)
                 except Exception:
                     db.rollback()
 
@@ -338,15 +352,33 @@ async def send_message(
             client_id=message_data.client_id,
         )
         db.add(message)
-        recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
-        if recipient_id:
-            add_notification(
-                db, recipient_id, "task_message_received", "Новое сообщение по задаче",
-                f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
-            )
-        _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
-        db.commit()
-        db.refresh(message)
+        try:
+            db.commit()
+            db.refresh(message)
+        except IntegrityError:
+            db.rollback()
+            if not message_data.client_id:
+                raise
+            message = db.query(Message).filter(
+                Message.task_id == task_id,
+                Message.user_id == current_user.id,
+                Message.client_id == message_data.client_id,
+            ).first()
+            if message is None:
+                raise
+
+        # Notifications are best-effort and cannot undo the persisted message.
+        try:
+            recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+            if recipient_id:
+                add_notification(
+                    db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                    f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+                )
+            _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+            db.commit()
+        except Exception:
+            db.rollback()
 
     # Повторный запрос с тем же client_id возвращает ту же запись, а не дублирует её.
     await _broadcast_task_message(task_id, {
@@ -596,9 +628,24 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                     client_id=client_id,
                 )
                 db.add(chat_message)
-                db.commit()
-                db.refresh(chat_message)
+                try:
+                    db.commit()
+                    db.refresh(chat_message)
+                except IntegrityError:
+                    db.rollback()
+                    if not client_id:
+                        raise
+                    chat_message = db.query(ProjectMessage).filter(
+                        ProjectMessage.project_id == project_id,
+                        ProjectMessage.user_id == current_user.id,
+                        ProjectMessage.client_id == client_id,
+                    ).first()
+                    if chat_message is None:
+                        raise
+                    is_new_message = False
 
+            if is_new_message:
+                # Notifications must not roll back a message that was already saved.
                 try:
                     for project_member in db.query(ProjectMember).filter(
                         ProjectMember.project_id == project_id,
@@ -610,7 +657,6 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                         )
                     _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
                     db.commit()
-                    db.refresh(chat_message)
                 except Exception:
                     db.rollback()
 
@@ -784,17 +830,35 @@ async def send_project_message(
             client_id=message_data.client_id,
         )
         db.add(message)
-        for project_member in db.query(ProjectMember).filter(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id != current_user.id,
-        ).all():
-            add_notification(
-                db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
-                f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
-            )
-        _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
-        db.commit()
-        db.refresh(message)
+        try:
+            db.commit()
+            db.refresh(message)
+        except IntegrityError:
+            db.rollback()
+            if not message_data.client_id:
+                raise
+            message = db.query(ProjectMessage).filter(
+                ProjectMessage.project_id == project_id,
+                ProjectMessage.user_id == current_user.id,
+                ProjectMessage.client_id == message_data.client_id,
+            ).first()
+            if message is None:
+                raise
+
+        # Keep the message even if fan-out notifications temporarily fail.
+        try:
+            for project_member in db.query(ProjectMember).filter(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id != current_user.id,
+            ).all():
+                add_notification(
+                    db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                    f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+                )
+            _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+            db.commit()
+        except Exception:
+            db.rollback()
 
     # Повторный запрос с тем же client_id не создаёт копию сообщения.
     await _broadcast_project_message(project_id, {
