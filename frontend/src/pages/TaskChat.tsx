@@ -284,8 +284,19 @@ export function TaskChatPage() {
 
         if (payload.type !== "message") return;
         setMessagesData((current) => {
-          // Уже есть такое сообщение — не дублируем
-          if (current.some((item) => item.id === payload.id)) return current;
+          // Повторное событие может содержать обновлённые данные вложения.
+          // Обновляем существующую запись, а не игнорируем её целиком.
+          const existingIndex = current.findIndex((item) => item.id === payload.id);
+          if (existingIndex >= 0) {
+            const next = [...current];
+            next[existingIndex] = {
+              ...next[existingIndex],
+              ...payload,
+              localId: next[existingIndex].localId || String(payload.id),
+              deliveryStatus: undefined,
+            };
+            return next;
+          }
           // Ищем оптимистичное сообщение по client_id или локальному id
           let pendingIndex = payload.client_id
             ? current.findIndex((item) => item.localId === payload.client_id && (item.deliveryStatus === "sending" || item.deliveryStatus === "error"))
