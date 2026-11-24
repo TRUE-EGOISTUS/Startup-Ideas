@@ -14,8 +14,8 @@ export function AcceptModeratorInvitationPage() {
       return;
     }
     try {
-      await api.post("/users/accept-moderator-invitation", null, {
-        params: { token, ...values }
+      await api.post("/users/accept-moderator-invitation", values, {
+        params: { token }
       });
       setDone(true);
     } catch {
