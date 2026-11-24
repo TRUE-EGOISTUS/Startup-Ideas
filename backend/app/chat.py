@@ -344,6 +344,7 @@ async def send_message(
         ).first()
 
     if message is None:
+        created_message = True
         message = Message(
             task_id=task_id,
             user_id=current_user.id,
@@ -366,19 +367,21 @@ async def send_message(
             ).first()
             if message is None:
                 raise
+            created_message = False
 
         # Notifications are best-effort and cannot undo the persisted message.
-        try:
-            recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
-            if recipient_id:
-                add_notification(
-                    db, recipient_id, "task_message_received", "Новое сообщение по задаче",
-                    f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
-                )
-            _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
-            db.commit()
-        except Exception:
-            db.rollback()
+        if created_message:
+            try:
+                recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+                if recipient_id:
+                    add_notification(
+                        db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                        f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+                    )
+                _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+                db.commit()
+            except Exception:
+                db.rollback()
 
     # Повторный запрос с тем же client_id возвращает ту же запись, а не дублирует её.
     await _broadcast_task_message(task_id, {
@@ -821,6 +824,7 @@ async def send_project_message(
         ).first()
 
     if message is None:
+        created_message = True
         message = ProjectMessage(
             project_id=project_id,
             user_id=current_user.id,
@@ -844,21 +848,23 @@ async def send_project_message(
             ).first()
             if message is None:
                 raise
+            created_message = False
 
         # Keep the message even if fan-out notifications temporarily fail.
-        try:
-            for project_member in db.query(ProjectMember).filter(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id != current_user.id,
-            ).all():
-                add_notification(
-                    db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
-                    f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
-                )
-            _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
-            db.commit()
-        except Exception:
-            db.rollback()
+        if created_message:
+            try:
+                for project_member in db.query(ProjectMember).filter(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id != current_user.id,
+                ).all():
+                    add_notification(
+                        db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                        f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+                    )
+                _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+                db.commit()
+            except Exception:
+                db.rollback()
 
     # Повторный запрос с тем же client_id не создаёт копию сообщения.
     await _broadcast_project_message(project_id, {
