@@ -299,7 +299,14 @@ def refresh_token(
     return {"message": "Access token refreshed"}
 
 @router.post("/logout")
-def logout(response: Response):
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
+def logout(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Invalidate existing access and refresh tokens server-side, not only in browser.
+    current_user.token_version += 1
+    db.commit()
+    response.delete_cookie("access_token", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
+    response.delete_cookie("refresh_token", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
     return {"message": "Logged out"}
