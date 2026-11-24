@@ -66,6 +66,7 @@ export function ProjectChatPage() {
   channelRef.current = channel;
   const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
+  const announcementClientIdRef = useRef<{ text: string; id: string } | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -575,11 +576,19 @@ export function ProjectChatPage() {
     const announcement = announcementText.trim();
     if (!projectId || !announcement || announcing) return;
     setAnnouncing(true);
+    const clientId = announcementClientIdRef.current?.text === announcement
+      ? announcementClientIdRef.current.id
+      : nextLocalId();
+    announcementClientIdRef.current = { text: announcement, id: clientId };
     try {
-      const { data } = await api.post<ProjectChatMessage>(`/projects/${projectId}/messages/announce`, { text: announcement });
+      const { data } = await api.post<ProjectChatMessage>(
+        `/projects/${projectId}/messages/announce`,
+        { text: announcement, client_id: clientId }
+      );
       setAnnouncements((current) =>
         current.some((item) => item.id === data.id) ? current : [{ ...data, localId: String(data.id) }, ...current]
       );
+      announcementClientIdRef.current = null;
       setAnnouncementText("");
       message.success("Объявление опубликовано");
     } catch {
