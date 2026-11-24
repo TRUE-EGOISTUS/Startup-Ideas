@@ -1,23 +1,23 @@
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, Field
 from typing import Optional, List
 from datetime import datetime, timedelta
 from uuid import UUID
 
 class IdeaCreate(BaseModel):
-    title: str
-    short_description: str
-    roles_needed: Optional[str] = None   # JSON строка
-    roles_specialists: Optional[str] = None
-    roles_companies: Optional[str] = None
-    tags: Optional[str] = None
+    title: str = Field(min_length=1, max_length=200)
+    short_description: str = Field(min_length=1, max_length=10000)
+    roles_needed: Optional[str] = Field(default=None, max_length=2000)
+    roles_specialists: Optional[str] = Field(default=None, max_length=2000)
+    roles_companies: Optional[str] = Field(default=None, max_length=2000)
+    tags: Optional[str] = Field(default=None, max_length=2000)
 
 class IdeaUpdate(BaseModel):
-    title: Optional[str] = None
-    short_description: Optional[str] = None
-    roles_needed: Optional[str] = None
-    roles_specialists: Optional[str] = None
-    roles_companies: Optional[str] = None
-    tags: Optional[str] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    short_description: Optional[str] = Field(default=None, min_length=1, max_length=10000)
+    roles_needed: Optional[str] = Field(default=None, max_length=2000)
+    roles_specialists: Optional[str] = Field(default=None, max_length=2000)
+    roles_companies: Optional[str] = Field(default=None, max_length=2000)
+    tags: Optional[str] = Field(default=None, max_length=2000)
 
 class IdeaResponse(BaseModel):
     id: UUID
@@ -47,8 +47,8 @@ class IdeaResponse(BaseModel):
         from_attributes = True
 
 class IdeaResponseCreate(BaseModel):
-    role: str  # роль, на которую претендует откликнувшийся
-    message: Optional[str] = None
+    role: str = Field(min_length=1, max_length=100)
+    message: Optional[str] = Field(default=None, max_length=2000)
 
 class IdeaResponseOut(BaseModel):
     id: int
