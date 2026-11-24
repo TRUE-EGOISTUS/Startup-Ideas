@@ -504,7 +504,6 @@ export function ProjectChatPage() {
         ]);
         bumpLastMessageId(data.id);
         setText("");
-        setAttachmentFile(null);
 
         const formData = new FormData();
         formData.append("file", fileToUpload);
@@ -518,6 +517,7 @@ export function ProjectChatPage() {
             ...current.filter((item) => item.id !== data.id && item.localId !== localId),
             attachedMessage,
           ]);
+          setAttachmentFile(null);
         } catch {
           message.error("Сообщение отправлено, но файл не загрузился. Прикрепите файл отдельным сообщением.");
         }
