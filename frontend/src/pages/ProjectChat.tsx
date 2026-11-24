@@ -339,7 +339,7 @@ export function ProjectChatPage() {
       socket.onerror = () => {
         socket.close();
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         // Закрытие старого сокета не должно трогать состояние нового
         if (socket !== websocketRef.current) return;
         websocketRef.current = null;
@@ -354,7 +354,8 @@ export function ProjectChatPage() {
           websocketReconnectRef,
           disposedRef,
           () => document.visibilityState === "visible",
-          reconnectAttemptRef.current++
+          reconnectAttemptRef.current++,
+          event.code
         );
       };
     };
