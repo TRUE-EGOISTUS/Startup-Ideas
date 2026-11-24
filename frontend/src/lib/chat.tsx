@@ -156,6 +156,9 @@ export type ReplyTarget = { messageId: number; text: string; author: string };
 
 let localCounter = 0;
 export function nextLocalId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `local-${crypto.randomUUID()}`;
+  }
   localCounter += 1;
   return `local-${Date.now()}-${localCounter}`;
 }
