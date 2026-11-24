@@ -145,7 +145,7 @@ export function TaskChatPage() {
       }
 
       // Пропущено больше одной страницы — догружаем остальное.
-      if (options.afterId !== undefined && data.length === 50 && lastMessageIdRef.current !== null) {
+      if (options.afterId !== undefined && data.length === PAGE_SIZE && lastMessageIdRef.current !== null) {
         void loadMessages({ afterId: lastMessageIdRef.current, silent: true, force: true });
       }
     } catch {
@@ -531,8 +531,58 @@ export function TaskChatPage() {
       return;
     }
 
-    // Для непринятого сервером сообщения повторно используем тот же localId/client_id.
-    // Это защищает от дублей, когда запись сохранилась, а подтверждение WebSocket потерялось.
+    // Если при первом запросе отправлялось вложение, повторяем всю операцию
+    // с тем же client_id, чтобы не создать второе текстовое сообщение.
+    if (attachmentFile && taskId) {
+      setSending(true);
+      setMessagesData((current) => current.map((messageItem) =>
+        messageItem.localId === item.localId
+          ? { ...messageItem, deliveryStatus: "sending" }
+          : messageItem
+      ));
+      try {
+        const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, {
+          text: item.text,
+          reply_to_id: item.reply_to_id,
+          client_id: item.localId,
+        });
+        const baseMessage = { ...data, localId: String(data.id) } as ChatMessage;
+        setMessagesData((current) => [
+          ...current.filter((messageItem) => messageItem.localId !== item.localId && messageItem.id !== data.id),
+          baseMessage,
+        ]);
+        lastMessageIdRef.current = Math.max(lastMessageIdRef.current ?? 0, data.id);
+
+        const formData = new FormData();
+        formData.append("file", attachmentFile);
+        try {
+          const attachmentResponse = await api.post<Message>(
+            `/tasks/${taskId}/messages/${data.id}/attachment`,
+            formData
+          );
+          setMessagesData((current) => current.map((messageItem) =>
+            messageItem.id === data.id
+              ? { ...attachmentResponse.data, localId: String(data.id) } as ChatMessage
+              : messageItem
+          ));
+          setAttachmentFile(null);
+        } catch {
+          message.error("Текст сообщения отправлен, но вложение не загрузилось. Прикрепите файл отдельным сообщением.");
+        }
+      } catch {
+        setMessagesData((current) => current.map((messageItem) =>
+          messageItem.localId === item.localId
+            ? { ...messageItem, deliveryStatus: "error" }
+            : messageItem
+        ));
+        message.error("Не удалось повторно отправить сообщение");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // Повторно используем тот же localId/client_id — сервер не создаст дубль.
     setMessagesData((current) =>
       current.map((messageItem) => messageItem.localId === item.localId
         ? { ...messageItem, deliveryStatus: "sending" }
