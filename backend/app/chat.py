@@ -114,6 +114,11 @@ async def _broadcast_task_message(task_id: UUID, payload: dict) -> None:
 
 @router.websocket("/ws")
 async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
+    try:
+        await websocket.accept()
+    except Exception:
+        return
+
     token = websocket.cookies.get("access_token")
     if not token:
         authorization = websocket.headers.get("authorization", "")
@@ -138,11 +143,6 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
         return
     finally:
         auth_db.close()
-
-    try:
-        await websocket.accept()
-    except Exception:
-        return
 
     task_chat_connections.setdefault(task_id, set()).add(websocket)
     try:
@@ -430,6 +430,11 @@ def get_messages(
 
 @project_router.websocket("/{project_id}/messages/ws")
 async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
+    try:
+        await websocket.accept()
+    except Exception:
+        return
+
     token = websocket.cookies.get("access_token")
     if not token:
         authorization = websocket.headers.get("authorization", "")
@@ -458,11 +463,6 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
         return
     finally:
         auth_db.close()
-
-    try:
-        await websocket.accept()
-    except Exception:
-        return
 
     project_chat_connections.setdefault(project_id, set()).add(websocket)
     try:
