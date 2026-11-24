@@ -8,6 +8,7 @@ import {
   CHAT_ALLOWED_EXTENSIONS,
   CHAT_MAX_LENGTH,
   MAX_FILE_SIZE,
+  PAGE_SIZE,
   SEND_ACK_TIMEOUT_MS,
   WS_PING_INTERVAL_MS,
   dateKey,
@@ -106,7 +107,7 @@ export function TaskChatPage() {
         params: {
           ...(options.afterId !== undefined ? { after_id: options.afterId } : {}),
           ...(options.beforeId !== undefined ? { before_id: options.beforeId } : {}),
-          limit: 50
+          limit: PAGE_SIZE
         }
       });
 
@@ -123,7 +124,7 @@ export function TaskChatPage() {
           const knownIds = new Set(current.map((item) => item.id));
           return [...data.filter((item) => !knownIds.has(item.id)).map((item) => ({ ...item, localId: String(item.id) })), ...current];
         });
-        setHasOlderMessages(data.length === 50);
+        setHasOlderMessages(data.length === PAGE_SIZE);
       } else if (options.afterId !== undefined) {
         setMessagesData((current) => {
           const knownIds = new Set(current.map((item) => item.id));
@@ -435,7 +436,11 @@ export function TaskChatPage() {
       return;
     }
     try {
-      const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText, ...(replyToId !== undefined ? { reply_to_id: replyToId } : {}) });
+      const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, {
+        text: messageText,
+        client_id: localId,
+        ...(replyToId !== undefined ? { reply_to_id: replyToId } : {}),
+      });
       const serverMessage: ChatMessage = { ...data, localId: String(data.id) };
       setMessagesData((current) =>
         current.some((item) => item.id === data.id)
