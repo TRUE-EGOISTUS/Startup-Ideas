@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, computed_field
+from pydantic import BaseModel, EmailStr, computed_field, Field
 from typing import Optional
 from datetime import datetime, timedelta
 from enum import Enum
@@ -146,5 +146,5 @@ class AdminUserRead(UserRead):
     verification_rejection_reason: Optional[str] = None
 
 class ModeratorInvitationAccept(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=3, max_length=100)
+    password: str = Field(min_length=8, max_length=128)
