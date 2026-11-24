@@ -23,6 +23,7 @@ class MessageOut(BaseModel):
     id: int
     task_id: UUID
     user_id: int
+    client_id: Optional[str] = None
     text: str
     attachment_url: Optional[str] = None
     attachment_name: Optional[str] = None
@@ -53,6 +54,7 @@ class ProjectMessageOut(BaseModel):
     id: int
     project_id: UUID
     user_id: int
+    client_id: Optional[str] = None
     text: str
     attachment_url: Optional[str] = None
     attachment_name: Optional[str] = None
