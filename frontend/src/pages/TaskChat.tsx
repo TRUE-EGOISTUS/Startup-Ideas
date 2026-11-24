@@ -4,82 +4,33 @@ import { Button, Card, Input, Tag, Typography, message } from "antd";
 import { api, getUserPublic } from "../lib/api";
 import type { Message, PublicUser, Task } from "../types";
 import { useAuthStore } from "../store/auth";
+import {
+  CHAT_ALLOWED_EXTENSIONS,
+  CHAT_MAX_LENGTH,
+  MAX_FILE_SIZE,
+  PAGE_SIZE,
+  SEND_ACK_TIMEOUT_MS,
+  WS_PING_INTERVAL_MS,
+  dateKey,
+  dateTimeLabel,
+  dayLabel,
+  initials,
+  messageContent,
+  nextLocalId,
+  resolveAttachmentUrl,
+  resolveAvatarUrl,
+  scheduleReconnect,
+  sendPing,
+  statusLabel,
+  timeLabel,
+  validateChatAttachment,
+} from "../lib/chat";
 import "./TaskChat.css";
 
-const CHAT_MAX_LENGTH = 2000;
-const SEND_ACK_TIMEOUT_MS = 10000;
 type DeliveryStatus = "sending" | "error";
 type ReactionSummary = { emoji: string; count: number; user_ids: number[] };
 type ChatMessage = Message & { localId: string; deliveryStatus?: DeliveryStatus; reactions?: ReactionSummary[] };
 type ReplyTarget = { messageId: number; text: string; author: string };
-
-function parseUtcDate(value: string) {
-  return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`);
-}
-
-function dateKey(value: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(parseUtcDate(value));
-}
-
-function dayLabel(value: string) {
-  const date = parseUtcDate(value);
-  const today = dateKey(new Date().toISOString());
-  const yesterday = dateKey(new Date(Date.now() - 86400000).toISOString());
-  const key = dateKey(value);
-  if (key === today) return "Сегодня";
-  if (key === yesterday) return "Вчера";
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Moscow" }).format(date);
-}
-
-function timeLabel(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow" }).format(parseUtcDate(value));
-}
-
-function dateTimeLabel(value?: string | null) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Moscow"
-  }).format(parseUtcDate(value));
-}
-
-function initials(name: string) {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
-}
-
-function statusLabel(status: string) {
-  return status
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part[0].toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
-}
-
-function messageContent(text: string) {
-  return text.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
-    /^https?:\/\//i.test(part) ? (
-      <a key={`${part}-${index}`} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
-    ) : part
-  );
-}
-
-function resolveAvatarUrl(value?: string | null) {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  const baseUrl = api.defaults.baseURL || window.location.origin;
-  return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
-}
-
-function resolveAttachmentUrl(value?: string | null) {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  const baseUrl = api.defaults.baseURL || window.location.origin;
-  return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
-}
 
 export function TaskChatPage() {
   const { taskId } = useParams();
@@ -106,6 +57,9 @@ export function TaskChatPage() {
   const websocketRef = useRef<WebSocket | null>(null);
   const websocketConnectedRef = useRef(false);
   const websocketReconnectRef = useRef<number | null>(null);
+  const websocketPingRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const disposedRef = useRef(false);
   const generationRef = useRef(0);
   const preserveScrollRef = useRef<{ top: number; height: number } | null>(null);
 
@@ -134,14 +88,16 @@ export function TaskChatPage() {
     afterId?: number;
     beforeId?: number;
     silent?: boolean;
+    force?: boolean;
   } = {}) => {
     if (!taskId) {
       return;
     }
-    if (messagesRequestRef.current) {
+    if (!options.force && messagesRequestRef.current) {
       return;
     }
-    messagesRequestRef.current = true;
+    const ownsRequestLock = !options.force;
+    if (ownsRequestLock) messagesRequestRef.current = true;
     const generation = generationRef.current;
     if (!options.silent) {
       setMessagesLoading(true);
@@ -151,7 +107,7 @@ export function TaskChatPage() {
         params: {
           ...(options.afterId !== undefined ? { after_id: options.afterId } : {}),
           ...(options.beforeId !== undefined ? { before_id: options.beforeId } : {}),
-          limit: 50
+          limit: PAGE_SIZE
         }
       });
 
@@ -168,7 +124,7 @@ export function TaskChatPage() {
           const knownIds = new Set(current.map((item) => item.id));
           return [...data.filter((item) => !knownIds.has(item.id)).map((item) => ({ ...item, localId: String(item.id) })), ...current];
         });
-        setHasOlderMessages(data.length === 50);
+        setHasOlderMessages(data.length === PAGE_SIZE);
       } else if (options.afterId !== undefined) {
         setMessagesData((current) => {
           const knownIds = new Set(current.map((item) => item.id));
@@ -181,23 +137,23 @@ export function TaskChatPage() {
           const preserved = current.filter((item) => item.deliveryStatus && !serverIds.has(item.id));
           return [...data.map((item) => ({ ...item, localId: String(item.id) })), ...preserved];
         });
-        setHasOlderMessages(data.length === 50);
+        setHasOlderMessages(data.length === PAGE_SIZE);
       }
 
       if (data.length > 0 && options.beforeId === undefined) {
-        lastMessageIdRef.current = data[data.length - 1].id;
+        lastMessageIdRef.current = Math.max(lastMessageIdRef.current ?? 0, data[data.length - 1].id);
       }
 
-      // Пропущено больше одной страницы — догружаем остальное
+      // Пропущено больше одной страницы — догружаем остальное.
       if (options.afterId !== undefined && data.length === 50 && lastMessageIdRef.current !== null) {
-        void loadMessages({ afterId: lastMessageIdRef.current, silent: true });
+        void loadMessages({ afterId: lastMessageIdRef.current, silent: true, force: true });
       }
     } catch {
       if (generation === generationRef.current && !options.silent) {
         message.error("Не удалось загрузить сообщения");
       }
     } finally {
-      messagesRequestRef.current = false;
+      if (ownsRequestLock) messagesRequestRef.current = false;
       if (generation === generationRef.current && !options.silent) {
         setMessagesLoading(false);
       }
@@ -210,6 +166,7 @@ export function TaskChatPage() {
     }
 
     let disposed = false;
+    disposedRef.current = false;
     generationRef.current += 1;
 
     // Сброс состояния предыдущей задачи
@@ -257,17 +214,33 @@ export function TaskChatPage() {
       websocketRef.current = socket;
       socket.onopen = () => {
         if (socket !== websocketRef.current) return;
+        reconnectAttemptRef.current = 0;
+        if (websocketPingRef.current !== null) window.clearInterval(websocketPingRef.current);
+        websocketPingRef.current = window.setInterval(() => sendPing(socket), WS_PING_INTERVAL_MS);
         websocketConnectedRef.current = true;
         setWebsocketConnected(true);
         // Подтягиваем сообщения, пропущенные пока соединения не было
         if (lastMessageIdRef.current !== null) {
-          void loadMessages({ afterId: lastMessageIdRef.current, silent: true });
+          void loadMessages({ afterId: lastMessageIdRef.current, silent: true, force: true });
         }
       };
       socket.onmessage = (event) => {
         if (socket !== websocketRef.current) return;
-        const raw = JSON.parse(event.data);
-        const payload = raw as Message & { type?: string; client_id?: string };
+        let payload: Message & {
+          type?: string;
+          client_id?: string;
+          message_id?: number;
+          emoji?: string;
+          user_id?: number;
+          active?: boolean;
+          reader_id?: number;
+          read_at?: string;
+        };
+        try {
+          payload = JSON.parse(event.data) as typeof payload;
+        } catch {
+          return;
+        }
 
         // Bug 15: обработка реакции
         if (payload.type === "reaction") {
@@ -294,6 +267,18 @@ export function TaskChatPage() {
             next[idx] = msg;
             return next;
           });
+          return;
+        }
+
+        if (payload.type === "read") {
+          const readerId = payload.reader_id;
+          if (readerId !== undefined && payload.read_at) {
+            setMessagesData((current) => current.map((item) =>
+              item.user_id !== readerId && item.id > 0
+                ? { ...item, read_at: payload.read_at }
+                : item
+            ));
+          }
           return;
         }
 
@@ -333,9 +318,17 @@ export function TaskChatPage() {
         websocketRef.current = null;
         websocketConnectedRef.current = false;
         setWebsocketConnected(false);
-        if (!disposed && document.visibilityState === "visible") {
-          websocketReconnectRef.current = window.setTimeout(connectWebSocket, 3000);
+        if (websocketPingRef.current !== null) {
+          window.clearInterval(websocketPingRef.current);
+          websocketPingRef.current = null;
         }
+        scheduleReconnect(
+          connectWebSocket,
+          websocketReconnectRef,
+          disposedRef,
+          () => document.visibilityState === "visible",
+          reconnectAttemptRef.current++
+        );
       };
     };
 
@@ -352,10 +345,13 @@ export function TaskChatPage() {
 
     return () => {
       disposed = true;
+      disposedRef.current = true;
       window.clearInterval(pollingId);
       window.clearInterval(readIntervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (websocketReconnectRef.current !== null) window.clearTimeout(websocketReconnectRef.current);
+      if (websocketPingRef.current !== null) window.clearInterval(websocketPingRef.current);
+      websocketPingRef.current = null;
       websocketConnectedRef.current = false;
       setWebsocketConnected(false);
       websocketRef.current?.close();
@@ -440,7 +436,11 @@ export function TaskChatPage() {
       return;
     }
     try {
-      const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText, ...(replyToId !== undefined ? { reply_to_id: replyToId } : {}) });
+      const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, {
+        text: messageText,
+        client_id: localId,
+        ...(replyToId !== undefined ? { reply_to_id: replyToId } : {}),
+      });
       const serverMessage: ChatMessage = { ...data, localId: String(data.id) };
       setMessagesData((current) =>
         current.some((item) => item.id === data.id)
@@ -458,7 +458,7 @@ export function TaskChatPage() {
     if (!taskId || !messageText || sending || messageText.length > CHAT_MAX_LENGTH) {
       return;
     }
-    const localId = `local-${Date.now()}`;
+    const localId = nextLocalId();
     const optimisticMessage: ChatMessage = {
       id: -Date.now(),
       localId,
@@ -475,17 +475,40 @@ export function TaskChatPage() {
     try {
       if (websocketConnected && websocketRef.current?.readyState === WebSocket.OPEN && !attachmentFile) {
         await deliverMessage(localId, messageText, replyTo?.messageId);
-      } else {
-        const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, { text: messageText, reply_to_id: replyTo?.messageId });
-        let result = data;
-        if (attachmentFile) {
-          const formData = new FormData();
-          formData.append("file", attachmentFile);
-          const attachmentResponse = await api.post<Message>(`/tasks/${taskId}/messages/${data.id}/attachment`, formData);
-          result = attachmentResponse.data;
+      } else if (attachmentFile) {
+        const fileToUpload = attachmentFile;
+        const { data } = await api.post<Message>(`/tasks/${taskId}/messages/`, {
+          text: messageText,
+          reply_to_id: replyTo?.messageId,
+          client_id: localId,
+        });
+        const baseMessage = { ...data, localId: String(data.id) } as ChatMessage;
+        setMessagesData((current) => [
+          ...current.filter((item) => item.localId !== localId && item.id !== data.id),
+          baseMessage,
+        ]);
+        lastMessageIdRef.current = Math.max(lastMessageIdRef.current ?? 0, data.id);
+        setText("");
+        setAttachmentFile(null);
+        setReplyTo(null);
+
+        const formData = new FormData();
+        formData.append("file", fileToUpload);
+        try {
+          const attachmentResponse = await api.post<Message>(
+            `/tasks/${taskId}/messages/${data.id}/attachment`,
+            formData
+          );
+          const attachedMessage = { ...attachmentResponse.data, localId: String(data.id) } as ChatMessage;
+          setMessagesData((current) => [
+            ...current.filter((item) => item.localId !== localId && item.id !== data.id),
+            attachedMessage,
+          ]);
+        } catch {
+          message.error("Сообщение отправлено, но файл не загрузился. Прикрепите файл отдельным сообщением.");
         }
-        setMessagesData((current) => current.map((item) => item.localId === localId ? { ...result, localId: String(result.id) } : item));
-        lastMessageIdRef.current = data.id;
+      } else {
+        await deliverMessage(localId, messageText, replyTo?.messageId);
       }
       setAttachmentFile(null);
       setReplyTo(null);
@@ -497,28 +520,24 @@ export function TaskChatPage() {
   };
 
   const retryMessage = (item: ChatMessage) => {
-    // Если сообщение уже было сохранено на сервере (id > 0), не удаляем его — просто показываем ошибку
-    // Это может случиться, когда WS пришёл позже таймаута 10с
+    // Если сервер уже присвоил id, сообщение доставлено — снимаем только индикатор ошибки.
     if (item.id > 0) {
-      // Сообщение существует на сервере — просто убираем статус ошибки
       setMessagesData((current) =>
-        current.map((m) => m.localId === item.localId ? { ...m, deliveryStatus: undefined as undefined } : m)
+        current.map((messageItem) => messageItem.localId === item.localId
+          ? { ...messageItem, deliveryStatus: undefined }
+          : messageItem)
       );
       return;
     }
-    // Локальное сообщение ещё не сохранено — удаляем и восстанавливаем текст
-    setMessagesData((current) => current.filter((messageItem) => messageItem.localId !== item.localId));
-    setText(item.text);
-    if (item.reply_to_id) {
-      const originalMessage = messagesData.find(m => m.id === item.reply_to_id);
-      if (originalMessage) {
-        setReplyTo({
-          messageId: originalMessage.id,
-          text: originalMessage.text.substring(0, 100),
-          author: originalMessage.sender_name || `User ${originalMessage.user_id}`
-        });
-      }
-    }
+
+    // Для непринятого сервером сообщения повторно используем тот же localId/client_id.
+    // Это защищает от дублей, когда запись сохранилась, а подтверждение WebSocket потерялось.
+    setMessagesData((current) =>
+      current.map((messageItem) => messageItem.localId === item.localId
+        ? { ...messageItem, deliveryStatus: "sending" }
+        : messageItem)
+    );
+    void deliverMessage(item.localId, item.text, item.reply_to_id ?? undefined);
   };
 
   const searchMessages = async (value: string) => {
@@ -711,7 +730,7 @@ export function TaskChatPage() {
           maxLength={CHAT_MAX_LENGTH}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               void onSendMessage();
             }
@@ -719,8 +738,22 @@ export function TaskChatPage() {
           placeholder="Напишите сообщение"
         />
         <div className="task-chat-composer-footer">
-          <label className="task-chat-file-picker">📎 Прикрепить файл<input type="file" onChange={(event) => setAttachmentFile(event.target.files?.[0] || null)} /></label>
-          {attachmentFile && <span className="task-chat-attachment-name">{attachmentFile.name}</span>}
+          <label className="task-chat-file-picker">📎 Прикрепить файл<input
+            type="file"
+            accept={CHAT_ALLOWED_EXTENSIONS.map((extension) => `.${extension}`).join(",")}
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              if (!file) return setAttachmentFile(null);
+              const error = validateChatAttachment(file);
+              if (error) {
+                message.error(error);
+                event.target.value = "";
+                return;
+              }
+              setAttachmentFile(file);
+            }}
+          /></label>
+          {attachmentFile && <span className="task-chat-attachment-name">{attachmentFile.name} ({(attachmentFile.size / 1024 / 1024).toFixed(1)} МБ, максимум {(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)} МБ)</span>}
           <span className="task-chat-counter">{text.length}/{CHAT_MAX_LENGTH} · Enter - отправить, Shift+Enter - новая строка</span>
         <Button type="primary" size="large" loading={sending} disabled={!text.trim() || text.length > CHAT_MAX_LENGTH} onClick={onSendMessage}>
           Отправить
