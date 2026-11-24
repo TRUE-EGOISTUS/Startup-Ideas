@@ -85,6 +85,7 @@ export function ProjectChatPage() {
   const websocketConnectedRef = useRef(false);
   const websocketReconnectRef = useRef<number | null>(null);
   const websocketPingRef = useRef<number | null>(null);
+  const lastPongAtRef = useRef(0);
   const reconnectAttemptRef = useRef(0);
   const disposedRef = useRef(false);
 
@@ -250,7 +251,7 @@ export function ProjectChatPage() {
         ? { silent: true }
         : { afterId: lastMessageIdRef.current, silent: true });
     };
-    const websocketBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/^http/, "ws");
+    const websocketBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/^http/, "ws").replace(/\/+$/, "");
     const connectWebSocket = () => {
       if (disposed || document.visibilityState !== "visible") return;
       const existing = websocketRef.current;
@@ -264,8 +265,15 @@ export function ProjectChatPage() {
       socket.onopen = () => {
         if (socket !== websocketRef.current) return;
         reconnectAttemptRef.current = 0;
+        lastPongAtRef.current = Date.now();
         if (websocketPingRef.current !== null) window.clearInterval(websocketPingRef.current);
-        websocketPingRef.current = window.setInterval(() => sendPing(socket), WS_PING_INTERVAL_MS);
+        websocketPingRef.current = window.setInterval(() => {
+          if (Date.now() - lastPongAtRef.current > WS_PING_INTERVAL_MS * 2.5) {
+            socket.close();
+            return;
+          }
+          sendPing(socket);
+        }, WS_PING_INTERVAL_MS);
         websocketConnectedRef.current = true;
         setWebsocketConnected(true);
         // Подтягиваем сообщения, пропущенные пока соединения не было
@@ -279,6 +287,10 @@ export function ProjectChatPage() {
         try {
           payload = JSON.parse(event.data) as SocketPayload;
         } catch {
+          return;
+        }
+        if (payload.type === "pong") {
+          lastPongAtRef.current = Date.now();
           return;
         }
         if (payload.type === "announcement") {
