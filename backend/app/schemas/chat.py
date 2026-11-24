@@ -9,7 +9,7 @@ class MessageCreate(BaseModel):
     reply_to_id: Optional[int] = Field(default=None, gt=0)
 
 class ReactionCreate(BaseModel):
-    emoji: str
+    emoji: str = Field(min_length=1, max_length=16)
 
 class ReactionSummary(BaseModel):
     emoji: str
