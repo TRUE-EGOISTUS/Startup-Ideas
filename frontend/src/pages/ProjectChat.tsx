@@ -315,7 +315,18 @@ export function ProjectChatPage() {
         const messageChannel = payload.channel || "general";
         if (messageChannel !== channelRef.current) return;
         setMessagesData((current) => {
-          if (current.some((item) => item.id === payload.id)) return current;
+          // Attachment uploads reuse the original message id and broadcast an update.
+          const existingIndex = current.findIndex((item) => item.id === payload.id);
+          if (existingIndex >= 0) {
+            const next = [...current];
+            next[existingIndex] = {
+              ...next[existingIndex],
+              ...payload,
+              localId: next[existingIndex].localId || String(payload.id),
+              deliveryStatus: undefined,
+            };
+            return next;
+          }
           // Ищем оптимистичное сообщение по client_id — любой статус доставки (sending или error)
           let pendingIndex = payload.client_id
             ? current.findIndex((item) => item.deliveryStatus && item.localId === payload.client_id)
