@@ -1,5 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from app.database import get_db, SessionLocal
@@ -18,6 +19,7 @@ import uuid
 
 router = APIRouter(prefix="/tasks/{task_id}/messages", tags=["chat"])
 project_router = APIRouter(prefix="/projects", tags=["project-chat"])
+attachments_router = APIRouter(tags=["chat-attachments"])
 task_chat_connections: dict[UUID, set[WebSocket]] = {}
 
 
@@ -147,6 +149,25 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 continue
             if not isinstance(raw, dict):
                 await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                continue
+
+            if raw.get("type") == "ping":
+                ping_db = SessionLocal()
+                try:
+                    ping_user = get_current_user_from_token(token, ping_db)
+                    ping_task = ping_db.query(Task).filter(Task.id == task_id).first()
+                    if not ping_task:
+                        await websocket.close(code=4004)
+                        return
+                    if not _can_access_task_chat(ping_task, ping_user):
+                        await websocket.close(code=4003)
+                        return
+                    await websocket.send_json({"type": "pong"})
+                except HTTPException:
+                    await websocket.close(code=4001)
+                    return
+                finally:
+                    ping_db.close()
                 continue
 
             # Bug 13: валидация text — None → "", убираем "None"
@@ -296,7 +317,7 @@ async def send_message(
     return _serialize_message(message)
 
 @router.post("/read")
-def mark_task_messages_read(
+async def mark_task_messages_read(
     task_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -311,6 +332,11 @@ def mark_task_messages_read(
         Message.read_at.is_(None),
     ).update({"read_at": now}, synchronize_session=False)
     db.commit()
+    await _broadcast_task_message(task_id, {
+        "type": "read",
+        "reader_id": current_user.id,
+        "read_at": now.isoformat(),
+    })
     return {"read_at": now.isoformat()}
 
 @router.get("/", response_model=list[MessageOut])
@@ -406,6 +432,29 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 continue
             if not isinstance(raw, dict):
                 await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                continue
+
+            if raw.get("type") == "ping":
+                ping_db = SessionLocal()
+                try:
+                    ping_user = get_current_user_from_token(token, ping_db)
+                    ping_project = ping_db.query(Project).filter(Project.id == project_id).first()
+                    if not ping_project:
+                        await websocket.close(code=4004)
+                        return
+                    ping_member = ping_db.query(ProjectMember).filter(
+                        ProjectMember.project_id == project_id,
+                        ProjectMember.user_id == ping_user.id,
+                    ).first()
+                    if not ping_member:
+                        await websocket.close(code=4003)
+                        return
+                    await websocket.send_json({"type": "pong"})
+                except HTTPException:
+                    await websocket.close(code=4001)
+                    return
+                finally:
+                    ping_db.close()
                 continue
 
             # Bug 13: валидация text — None → "", убираем "None"
@@ -600,12 +649,13 @@ def get_project_announcements(
     if not member:
         raise HTTPException(status_code=403, detail="You are not a member")
 
-    return db.query(ProjectMessage).options(
+    messages = db.query(ProjectMessage).options(
         joinedload(ProjectMessage.user).joinedload(User.specialist_profile),
         joinedload(ProjectMessage.user).joinedload(User.company_profile),
+        joinedload(ProjectMessage.reactions),
     ).filter(
         ProjectMessage.project_id == project_id,
-        ProjectMessage.is_announcement == True
+        ProjectMessage.is_announcement.is_(True),
     ).order_by(ProjectMessage.is_pinned.desc(), ProjectMessage.created_at.desc()).all()
     return [_serialize_project_message(msg) for msg in messages]
 
@@ -667,7 +717,7 @@ async def send_project_message(
     return _serialize_project_message(message)
 
 @project_router.post("/{project_id}/messages/read")
-def mark_project_messages_read(
+async def mark_project_messages_read(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -685,6 +735,11 @@ def mark_project_messages_read(
         ProjectMessage.read_at.is_(None),
     ).update({"read_at": now}, synchronize_session=False)
     db.commit()
+    await _broadcast_project_message(project_id, {
+        "type": "read",
+        "reader_id": current_user.id,
+        "read_at": now.isoformat(),
+    })
     return {"read_at": now.isoformat()}
 
 @project_router.post("/{project_id}/messages/{message_id}/pin", response_model=ProjectMessageOut)
@@ -818,31 +873,79 @@ async def _store_chat_attachment(file: UploadFile) -> tuple[str, str]:
     safe_name = _validate_filename(file.filename)
     ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
 
-    directory = "static/uploads/chat"
+    directory = os.path.join("static", "uploads", "chat")
     os.makedirs(directory, exist_ok=True)
     filename = f"{uuid.uuid4().hex}.{ext}"
     filepath = os.path.join(directory, filename)
 
     written = 0
-    while True:
-        chunk = await file.read(1024 * 256)  # 256 KB chunks
-        if not chunk:
-            break
-        written += len(chunk)
-        if written > CHAT_MAX_FILE_SIZE:
-            # Чистим частично записанный файл при превышении лимита
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            raise HTTPException(status_code=413, detail="File is too large (max 10 MB)")
-        with open(filepath, "ab") as target:
-            target.write(chunk)
+    try:
+        with open(filepath, "xb") as target:
+            while True:
+                chunk = await file.read(1024 * 256)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > CHAT_MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="File is too large (max 10 MB)")
+                target.write(chunk)
+    except Exception:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
 
     if written == 0:
         if os.path.exists(filepath):
             os.remove(filepath)
         raise HTTPException(status_code=400, detail="Empty file")
 
+    # Этот URL обслуживается авторизованным endpoint, а не публичной StaticFiles.
     return f"/static/uploads/chat/{filename}", safe_name
+
+@attachments_router.get("/static/uploads/chat/{filename}")
+def download_chat_attachment(
+    filename: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename or safe_filename in {"", ".", ".."}:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    attachment_url = f"/static/uploads/chat/{safe_filename}"
+    task_message = db.query(Message).filter(Message.attachment_url == attachment_url).first()
+    project_message = None
+
+    if task_message is not None:
+        task = db.query(Task).filter(Task.id == task_message.task_id).first()
+        if task is None or not _can_access_task_chat(task, current_user):
+            raise HTTPException(status_code=403, detail="You are not allowed to download this attachment")
+        original_name = task_message.attachment_name or safe_filename
+    else:
+        project_message = db.query(ProjectMessage).filter(
+            ProjectMessage.attachment_url == attachment_url
+        ).first()
+        if project_message is None:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        member = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_message.project_id,
+            ProjectMember.user_id == current_user.id,
+        ).first()
+        if member is None:
+            raise HTTPException(status_code=403, detail="You are not allowed to download this attachment")
+        original_name = project_message.attachment_name or safe_filename
+
+    filepath = os.path.abspath(os.path.join("static", "uploads", "chat", safe_filename))
+    directory = os.path.abspath(os.path.join("static", "uploads", "chat"))
+    if os.path.commonpath([filepath, directory]) != directory or not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Attachment file not found")
+
+    return FileResponse(
+        filepath,
+        media_type="application/octet-stream",
+        filename=original_name,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 @router.post("/{message_id}/reactions")
 async def toggle_task_reaction(
