@@ -16,6 +16,7 @@ from app.auth import (
 )
 from app.config import settings
 from app.schemas.user import (
+    ModeratorInvitationAccept,
     UserRead, UserUpdate, ChangePasswordRequest,
     SpecialistProfileRead, CompanyProfileRead, 
     SpecialistProfileUpdate, CompanyProfileUpdate,
@@ -208,8 +209,7 @@ def revoke_moderator(
 @router.post("/accept-moderator-invitation", response_model=UserRead)
 def accept_moderator_invitation(
     token: str,
-    username: str = Query(..., min_length=3, max_length=100),
-    password: str = Query(..., min_length=8),
+    data: ModeratorInvitationAccept,
     db: Session = Depends(get_db),
 ):
     invitation = db.query(ModeratorInvitation).filter(
@@ -221,13 +221,13 @@ def accept_moderator_invitation(
         raise HTTPException(status_code=400, detail="Invitation is invalid or expired")
     if db.query(User).filter(User.email == invitation.email).first():
         raise HTTPException(status_code=400, detail="Email is already registered")
-    if db.query(User).filter(User.username == username).first():
+    if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(status_code=400, detail="Username already taken")
 
     user = User(
         email=invitation.email,
-        username=username,
-        hashed_password=get_password_hash(password),
+        username=data.username,
+        hashed_password=get_password_hash(data.password),
         role=UserRole.SPECIALIST,
         is_verified=True,
         is_active=True,
