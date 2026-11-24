@@ -1,13 +1,12 @@
 from uuid import UUID
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, Field
 from datetime import datetime, timedelta
 from typing import Optional, List
 
 class MessageCreate(BaseModel):
-    text: str
-    attachment_url: Optional[str] = None
-    attachment_name: Optional[str] = None
-    reply_to_id: Optional[int] = None
+    text: str = Field(min_length=1, max_length=2000)
+    client_id: Optional[str] = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    reply_to_id: Optional[int] = Field(default=None, gt=0)
 
 class ReactionCreate(BaseModel):
     emoji: str
@@ -45,9 +44,10 @@ class MessageOut(BaseModel):
         from_attributes = True
 
 class ProjectMessageCreate(BaseModel):
-    text: str
-    reply_to_id: Optional[int] = None
-    channel: str = "general"
+    text: str = Field(min_length=1, max_length=2000)
+    client_id: Optional[str] = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    reply_to_id: Optional[int] = Field(default=None, gt=0)
+    channel: str = Field(default="general", min_length=1, max_length=40)
 
 class ProjectMessageOut(BaseModel):
     id: int
