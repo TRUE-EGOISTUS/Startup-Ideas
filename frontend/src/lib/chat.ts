@@ -132,9 +132,6 @@ export const WS_PING_INTERVAL_MS = 25000;
 export const WS_RECONNECT_BASE_MS = 1000;
 export const WS_RECONNECT_MAX_MS = 30000;
 
-// WebSocket close codes that mean "don't reconnect"
-const NO_RECONNECT_CODES = new Set([4001, 4003, 4004]);
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
