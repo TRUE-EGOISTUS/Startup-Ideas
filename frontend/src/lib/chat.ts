@@ -1,13 +1,10 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment } from "react";
 import type { Message } from "../types";
 import { api } from "./api";
-import { useAuthStore } from "../store/auth";
 
 // ---------------------------------------------------------------------------
 // Timezone helpers – uses user's browser timezone instead of hardcoding MSK
 // ---------------------------------------------------------------------------
-
-const tzCache = new Map<string, string>();
 
 function getTimeZone() {
   try {
@@ -17,10 +14,7 @@ function getTimeZone() {
   }
 }
 
-let cachedTz = getTimeZone();
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => { /* keep cachedTz alive */ });
-}
+const cachedTz = getTimeZone();
 
 export function parseUtcDate(value: string) {
   return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`);
@@ -82,22 +76,14 @@ export function initials(name: string) {
 export function resolveAvatarUrl(value?: string | null) {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
-  const baseUrl = typeof apiDefaultsBaseURL !== "undefined"
-    ? apiDefaultsBaseURL
-    : (typeof document !== "undefined" ? document.baseURI : "");
+  const baseUrl = api.defaults.baseURL || (typeof window !== "undefined" ? window.location.origin : "");
   return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
-}
-
-// We set this from api.ts after import
-let apiDefaultsBaseURL: string | undefined;
-export function setApiBaseUrl(url: string) {
-  apiDefaultsBaseURL = url;
 }
 
 export function resolveAttachmentUrl(value?: string | null) {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
-  const baseUrl = apiDefaultsBaseURL || window.location.origin;
+  const baseUrl = api.defaults.baseURL || (typeof window !== "undefined" ? window.location.origin : "");
   return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
 }
 
@@ -141,7 +127,7 @@ export function systemTypeLabel(raw: string | null | undefined) {
 export const CHAT_MAX_LENGTH = 2000;
 export const SEND_ACK_TIMEOUT_MS = 10000;
 export const PAGE_SIZE = 50;
-export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+export const MAX_FILE_SIZE = 10 * 1024 * 1024; // backend limit: 10 MiB
 export const WS_PING_INTERVAL_MS = 25000;
 export const WS_RECONNECT_BASE_MS = 1000;
 export const WS_RECONNECT_MAX_MS = 30000;
@@ -201,4 +187,21 @@ export function sendPing(socket: WebSocket | null) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     try { socket.send(JSON.stringify({ type: "ping" })); } catch { /* ignore */ }
   }
+}
+
+export const CHAT_ALLOWED_EXTENSIONS = [
+  "png", "jpg", "jpeg", "gif", "webp",
+  "pdf", "doc", "docx", "txt", "rtf",
+  "csv", "xls", "xlsx", "zip", "rar", "7z",
+] as const;
+
+export function validateChatAttachment(file: File): string | null {
+  if (file.size > MAX_FILE_SIZE) {
+    return "Файл слишком большой. Максимальный размер — 10 МБ.";
+  }
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  if (!CHAT_ALLOWED_EXTENSIONS.includes(extension as (typeof CHAT_ALLOWED_EXTENSIONS)[number])) {
+    return "Этот тип файла нельзя прикрепить к сообщению.";
+  }
+  return null;
 }
