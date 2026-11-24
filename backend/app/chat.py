@@ -177,9 +177,10 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
 
             # Bug 13: валидация text — None → "", убираем "None"
             raw_text = raw.get("text")
-            if raw_text is None:
-                raw_text = ""
-            text = str(raw_text).strip()
+            if not isinstance(raw_text, str):
+                await websocket.send_json({"type": "error", "detail": "Message text must be a string"})
+                continue
+            text = raw_text.strip()
             if not text or len(text) > 2000:
                 await websocket.send_json({"type": "error", "detail": "Message must contain 1-2000 characters"})
                 continue
@@ -188,8 +189,13 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
             raw_reply = raw.get("reply_to_id")
             reply_to_id = None
             if raw_reply is not None:
+                if isinstance(raw_reply, bool):
+                    await websocket.send_json({"type": "error", "detail": "Invalid reply_to_id"})
+                    continue
                 try:
                     reply_to_id = int(raw_reply)
+                    if reply_to_id < 1:
+                        raise ValueError("reply_to_id must be positive")
                 except (TypeError, ValueError):
                     await websocket.send_json({"type": "error", "detail": "Invalid reply_to_id"})
                     continue
@@ -501,9 +507,10 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
 
             # Bug 13: валидация text — None → "", убираем "None"
             raw_text = raw.get("text")
-            if raw_text is None:
-                raw_text = ""
-            text = str(raw_text).strip()
+            if not isinstance(raw_text, str):
+                await websocket.send_json({"type": "error", "detail": "Message text must be a string"})
+                continue
+            text = raw_text.strip()
             if not text or len(text) > 2000:
                 await websocket.send_json({"type": "error", "detail": "Message must contain 1-2000 characters"})
                 continue
@@ -512,13 +519,22 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
             raw_reply = raw.get("reply_to_id")
             reply_to_id = None
             if raw_reply is not None:
+                if isinstance(raw_reply, bool):
+                    await websocket.send_json({"type": "error", "detail": "Invalid reply_to_id"})
+                    continue
                 try:
                     reply_to_id = int(raw_reply)
+                    if reply_to_id < 1:
+                        raise ValueError("reply_to_id must be positive")
                 except (TypeError, ValueError):
                     await websocket.send_json({"type": "error", "detail": "Invalid reply_to_id"})
                     continue
 
-            channel = _validate_channel(raw.get("channel"))
+            try:
+                channel = _validate_channel(raw.get("channel"))
+            except HTTPException as exc:
+                await websocket.send_json({"type": "error", "detail": exc.detail})
+                continue
 
             # Bug 10 + 11: короткая сессия на каждое сообщение + проверка доступа
             db = SessionLocal()
@@ -923,6 +939,8 @@ def _validate_emoji(emoji: str) -> str:
     return value
 
 def _validate_channel(channel: str | None) -> str:
+    if channel is not None and not isinstance(channel, str):
+        raise HTTPException(status_code=400, detail="Invalid channel")
     value = (channel or "general").strip().lower()
     if not re.fullmatch(r"[a-z0-9_-]{1,40}", value):
         raise HTTPException(status_code=400, detail="Invalid channel")
