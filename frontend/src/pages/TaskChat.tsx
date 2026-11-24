@@ -501,7 +501,6 @@ export function TaskChatPage() {
         ]);
         lastMessageIdRef.current = Math.max(lastMessageIdRef.current ?? 0, data.id);
         setText("");
-        setAttachmentFile(null);
         setReplyTo(null);
 
         const formData = new FormData();
@@ -516,13 +515,13 @@ export function TaskChatPage() {
             ...current.filter((item) => item.localId !== localId && item.id !== data.id),
             attachedMessage,
           ]);
+          setAttachmentFile(null);
         } catch {
           message.error("Сообщение отправлено, но файл не загрузился. Прикрепите файл отдельным сообщением.");
         }
       } else {
         await deliverMessage(localId, messageText, replyTo?.messageId);
       }
-      setAttachmentFile(null);
       setReplyTo(null);
     } catch {
       setMessagesData((current) => current.map((item) => item.localId === localId ? { ...item, deliveryStatus: "error" } : item));
