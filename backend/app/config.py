@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "https://junion.io,http://localhost:3000,http://localhost:5173"
 
 
 settings = Settings()
