@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 from sqlalchemy import or_
@@ -133,12 +133,12 @@ def get_tasks(
     db: Session = Depends(get_db),
     status: Optional[str] = None,
     difficulty: Optional[str] = None,
-    min_reward: Optional[int] = None,
-    max_reward: Optional[int] = None,
-    search: Optional[str] = None,
-    skill: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    min_reward: Optional[int] = Query(None, ge=0),
+    max_reward: Optional[int] = Query(None, ge=0),
+    search: Optional[str] = Query(None, max_length=100),
+    skill: Optional[str] = Query(None, max_length=100),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
     query = db.query(Task)
@@ -150,6 +150,8 @@ def get_tasks(
             Task.author_id == current_user.id,
             Task.assigned_to_id == current_user.id,
         ))
+    if min_reward is not None and max_reward is not None and min_reward > max_reward:
+        raise HTTPException(status_code=400, detail="min_reward cannot exceed max_reward")
     if status:
         query = query.filter(Task.status == status)
     if difficulty:
@@ -169,8 +171,6 @@ def get_tasks(
     if skill:
         query = query.filter(Task.required_skills.ilike(f"%{skill.strip().casefold()}%"))
     total = query.count()
-    _refresh_task_display_ids(db)
-    db.flush()
     tasks = query.options(
         selectinload(Task.author),
         selectinload(Task.responses).selectinload(TaskResponseModel.user)
@@ -236,10 +236,14 @@ def create_response(
     if existing:
         raise HTTPException(status_code=400, detail="Already responded")
     
+    message_text = response_data.message.strip()
+    if not message_text:
+        raise HTTPException(status_code=400, detail="Response message cannot be empty")
+
     response = TaskResponseModel(
         task_id=task_id,
         user_id=current_user.id,
-        message=response_data.message
+        message=message_text
     )
     db.add(response)
     add_notification(
@@ -624,6 +628,8 @@ def accept_solution(
 
     if should_delete_task:
         _delete_task_tree(task, db)
+        db.flush()
+        _refresh_task_display_ids(db)
 
     db.commit()
     return {"message": "Solution accepted and rated"}
