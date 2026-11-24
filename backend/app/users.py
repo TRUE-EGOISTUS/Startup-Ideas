@@ -70,7 +70,7 @@ def create_moderator_invitation(
     db.commit()
     try:
         send_moderator_invitation_email(normalized_email, token)
-    except (RuntimeError, OSError):
+    except (RuntimeError, OSError, smtplib.SMTPException):
         db.delete(invitation)
         db.commit()
         raise HTTPException(status_code=503, detail="Could not send moderator invitation")
@@ -491,14 +491,15 @@ def update_me(
         current_user.username = user_data.username
 
     if user_data.email is not None:
+        normalized_email = user_data.email.strip().lower()
         existing = db.query(User).filter(
-            User.email == user_data.email,
+            User.email == normalized_email,
             User.id != current_user.id,
         ).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
 
-        email_changed = user_data.email != current_user.email
+        email_changed = normalized_email != current_user.email.lower()
         if email_changed:
             if not user_data.current_password or not verify_password(
                 user_data.current_password, current_user.hashed_password
@@ -507,11 +508,11 @@ def update_me(
                     status_code=400,
                     detail="Current password is required to change email",
                 )
-            verification_token = create_email_verification_token(user_data.email)
+            verification_token = create_email_verification_token(normalized_email)
             try:
                 # Send before committing so a mail-delivery error does not leave
                 # the account attached to an address it cannot verify.
-                send_verification_email(user_data.email, verification_token)
+                send_verification_email(normalized_email, verification_token)
             except RuntimeError as exc:
                 db.rollback()
                 raise HTTPException(status_code=503, detail=str(exc))
@@ -522,7 +523,7 @@ def update_me(
                     detail="Could not send email verification message",
                 )
 
-            current_user.email = user_data.email
+            current_user.email = normalized_email
             current_user.is_verified = False
 
     db.commit()
