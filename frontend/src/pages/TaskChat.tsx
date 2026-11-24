@@ -65,6 +65,7 @@ export function TaskChatPage() {
   const generationRef = useRef(0);
   const searchQueryRef = useRef("");
   const searchRequestRef = useRef(0);
+  const reactionRequestsRef = useRef(new Set<number>());
   const preserveScrollRef = useRef<{ top: number; height: number } | null>(null);
 
   const loadTask = async () => {
@@ -656,7 +657,8 @@ export function TaskChatPage() {
   };
 
   const toggleReaction = async (item: ChatMessage) => {
-    if (!taskId || item.id < 0) return;
+    if (!taskId || item.id < 0 || reactionRequestsRef.current.has(item.id)) return;
+    reactionRequestsRef.current.add(item.id);
     // Оптимистичное обновление UI
     const wasActive = item.reactions?.some((r) => r.emoji === "👍" && r.user_ids.includes(user?.id ?? -1));
     setMessagesData((current) =>
@@ -685,11 +687,19 @@ export function TaskChatPage() {
     );
     try {
       await api.post(`/tasks/${taskId}/messages/${item.id}/reactions`, { emoji: "👍" });
-    } catch (err: any) {
-      // IntegrityError — реакция уже была/не была, откатываем UI
-      setMessagesData((current) =>
-        current.map((m) => m.id === item.id ? { ...m, reactions: item.reactions } : m)
-      );
+    } catch {
+      // The server may have committed while the HTTP response was lost.
+      // Re-read the canonical reaction summary instead of rolling back stale state.
+      try {
+        const { data } = await api.get<Message[]>(`/tasks/${taskId}/messages/`, {
+          params: { after_id: item.id - 1, limit: 1 },
+        });
+        setMessagesData((current) => mergeChatMessages(current, data));
+      } catch {
+        message.error("Не удалось обновить реакцию");
+      }
+    } finally {
+      reactionRequestsRef.current.delete(item.id);
     }
   };
 
