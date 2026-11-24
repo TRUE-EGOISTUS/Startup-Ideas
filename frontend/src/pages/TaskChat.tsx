@@ -137,7 +137,7 @@ export function TaskChatPage() {
           const preserved = current.filter((item) => item.deliveryStatus && !serverIds.has(item.id));
           return [...data.map((item) => ({ ...item, localId: String(item.id) })), ...preserved];
         });
-        setHasOlderMessages(data.length === 50);
+        setHasOlderMessages(data.length === PAGE_SIZE);
       }
 
       if (data.length > 0 && options.beforeId === undefined) {
