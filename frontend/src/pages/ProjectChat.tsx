@@ -58,6 +58,8 @@ export function ProjectChatPage() {
   const [text, setText] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [channel, setChannel] = useState("general");
+  const channelRef = useRef(channel);
+  channelRef.current = channel;
   const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
   const [projectLoading, setProjectLoading] = useState(true);
@@ -303,7 +305,7 @@ export function ProjectChatPage() {
 
         if (payload.type !== "message") return;
         const messageChannel = payload.channel || "general";
-        if (messageChannel !== channel) return;
+        if (messageChannel !== channelRef.current) return;
         setMessagesData((current) => {
           if (current.some((item) => item.id === payload.id)) return current;
           // Ищем оптимистичное сообщение по client_id — любой статус доставки (sending или error)
@@ -444,7 +446,7 @@ export function ProjectChatPage() {
       return;
     }
     try {
-      const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText, channel });
+      const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText, channel, client_id: localId });
       const serverMessage: ProjectChatMessage = { ...data, localId: String(data.id) };
       setMessagesData((current) =>
         current.some((item) => item.id === data.id)
@@ -461,7 +463,7 @@ export function ProjectChatPage() {
     const messageText = text.trim();
     if (!projectId || !messageText || sending || messageText.length > CHAT_MAX_LENGTH) return;
     const localId = nextLocalId();
-    const optimisticId = -localCounter;
+    const optimisticId = -Date.now();
     shouldStickToBottomRef.current = true;
     setMessagesData((current) => [...current, {
       id: optimisticId, localId, project_id: projectId, user_id: user?.id ?? 0, text: messageText,
