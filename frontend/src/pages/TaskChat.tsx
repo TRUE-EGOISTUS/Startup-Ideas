@@ -61,6 +61,7 @@ export function TaskChatPage() {
   const reconnectAttemptRef = useRef(0);
   const disposedRef = useRef(false);
   const generationRef = useRef(0);
+  const searchQueryRef = useRef("");
   const preserveScrollRef = useRef<{ top: number; height: number } | null>(null);
 
   const loadTask = async () => {
@@ -295,6 +296,7 @@ export function TaskChatPage() {
         }
 
         if (payload.type !== "message") return;
+        if (searchQueryRef.current && !payload.text.toLocaleLowerCase().includes(searchQueryRef.current)) return;
         setMessagesData((current) => {
           // Повторное событие может содержать обновлённые данные вложения.
           // Обновляем существующую запись, а не игнорируем её целиком.
@@ -616,8 +618,11 @@ export function TaskChatPage() {
   const searchMessages = async (value: string) => {
     if (!taskId) return;
     const query = value.trim();
+    searchQueryRef.current = query.toLocaleLowerCase();
     if (!query) {
-      void loadMessages();
+      setMessagesData([]);
+      lastMessageIdRef.current = null;
+      void loadMessages({ force: true });
       return;
     }
     try {
