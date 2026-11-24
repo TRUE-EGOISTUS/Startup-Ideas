@@ -159,7 +159,11 @@ export function ProjectChatPage() {
         }
       });
       // Ответ от предыдущего проекта не должен попасть в чат текущего
-      if (generation !== generationRef.current || channelGeneration !== channelGenerationRef.current) return;
+      if (
+        generation !== generationRef.current ||
+        channelGeneration !== channelGenerationRef.current ||
+        requestedChannel !== channelRef.current
+      ) return;
       const prepared: ProjectChatMessage[] = data.map((item) => ({ ...item, localId: String(item.id) }));
       if (isOlder) {
         const knownIds = new Set(messagesDataRef.current.map((item) => item.id));
@@ -186,10 +190,15 @@ export function ProjectChatPage() {
       if (
         generation === generationRef.current &&
         channelGeneration === channelGenerationRef.current &&
+        requestedChannel === channelRef.current &&
         !options.silent
       ) message.error("Не удалось загрузить сообщения проекта");
     } finally {
-      if (generation === generationRef.current && channelGeneration === channelGenerationRef.current) {
+      if (
+        generation === generationRef.current &&
+        channelGeneration === channelGenerationRef.current &&
+        requestedChannel === channelRef.current
+      ) {
         if (owns) requestRef.current = false;
         if (!options.silent) setMessagesLoading(false);
       }
