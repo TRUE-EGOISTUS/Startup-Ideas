@@ -9,6 +9,7 @@ from app.chat import router as chat_router, project_router
 from app.ideas import router as ideas_router
 from app.notifications import router as notifications_router
 from fastapi.staticfiles import StaticFiles
+from app.config import settings
 
 
 app = FastAPI(title="Startup Hybrid API", version="1.0.0")
@@ -16,9 +17,17 @@ app = FastAPI(title="Startup Hybrid API", version="1.0.0")
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+allowed_origins = {
+    origin.strip().rstrip("/")
+    for origin in settings.CORS_ORIGINS.split(",")
+    if origin.strip()
+}
+if settings.FRONTEND_URL.strip():
+    allowed_origins.add(settings.FRONTEND_URL.strip().rstrip("/"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # адрес фронта
+    allow_origins=sorted(allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
