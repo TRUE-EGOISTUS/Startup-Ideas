@@ -312,7 +312,7 @@ export function TaskChatPage() {
         });
         lastMessageIdRef.current = payload.id;
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         // Закрытие старого сокета не должно трогать состояние нового
         if (socket !== websocketRef.current) return;
         websocketRef.current = null;
@@ -327,7 +327,8 @@ export function TaskChatPage() {
           websocketReconnectRef,
           disposedRef,
           () => document.visibilityState === "visible",
-          reconnectAttemptRef.current++
+          reconnectAttemptRef.current++,
+          event.code
         );
       };
     };
