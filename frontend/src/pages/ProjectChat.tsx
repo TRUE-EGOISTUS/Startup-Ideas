@@ -63,6 +63,7 @@ export function ProjectChatPage() {
   const searchQueryRef = useRef("");
   const channelGenerationRef = useRef(0);
   const searchRequestRef = useRef(0);
+  const reactionRequestsRef = useRef(new Set<number>());
   channelRef.current = channel;
   const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
@@ -687,7 +688,8 @@ export function ProjectChatPage() {
   };
 
   const toggleReaction = async (item: ProjectChatMessage) => {
-    if (!projectId || item.id < 0) return;
+    if (!projectId || item.id < 0 || reactionRequestsRef.current.has(item.id)) return;
+    reactionRequestsRef.current.add(item.id);
     // Оптимистичное обновление UI
     const wasActive = item.reactions?.some((r) => r.emoji === "👍" && r.user_ids.includes(user?.id ?? -1));
     setMessagesData((current) =>
@@ -714,10 +716,19 @@ export function ProjectChatPage() {
     );
     try {
       await api.post(`/projects/${projectId}/messages/${item.id}/reactions`, { emoji: "👍" });
-    } catch (err: any) {
-      setMessagesData((current) =>
-        current.map((m) => m.id === item.id ? { ...m, reactions: item.reactions } : m)
-      );
+    } catch {
+      // The server may have committed while the HTTP response was lost.
+      // Re-read the canonical reaction summary instead of rolling back stale state.
+      try {
+        const { data } = await api.get<Message[]>(`/projects/${projectId}/messages`, {
+          params: { after_id: item.id - 1, limit: 1, channel: channelRef.current },
+        });
+        setMessagesData((current) => mergeChatMessages(current, data));
+      } catch {
+        message.error("Не удалось обновить реакцию");
+      }
+    } finally {
+      reactionRequestsRef.current.delete(item.id);
     }
   };
 
