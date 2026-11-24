@@ -302,16 +302,31 @@ export function ProjectChatPage() {
             if (idx < 0) return current;
             const next = [...current];
             const msg = { ...next[idx] } as ProjectChatMessage;
+            if (!Number.isInteger(userId) || typeof emoji !== "string") return current;
             const existing = msg.reactions?.find((r: ReactionSummary) => r.emoji === emoji);
-            if (active && !existing) {
-              msg.reactions = [...(msg.reactions || []), { emoji, count: 1, user_ids: [userId] }];
-            } else if (!active && existing) {
-              const updated = existing.count === 1
-                ? msg.reactions?.filter((r: ReactionSummary) => r.emoji !== emoji)
-                : msg.reactions?.map((r: ReactionSummary) =>
-                    r.emoji === emoji ? { ...r, count: r.count - 1, user_ids: r.user_ids.filter((id: number) => id !== userId) } : r
+            const userAlreadyReacted = existing?.user_ids.includes(userId) ?? false;
+
+            // WS can echo an optimistic update back to the same client.
+            // Apply only a real membership transition for this user.
+            if (active && userAlreadyReacted) return current;
+            if (!active && !userAlreadyReacted) return current;
+
+            if (active) {
+              msg.reactions = existing
+                ? msg.reactions?.map((reaction: ReactionSummary) =>
+                    reaction.emoji === emoji
+                      ? { ...reaction, count: reaction.count + 1, user_ids: [...reaction.user_ids, userId] }
+                      : reaction
+                  )
+                : [...(msg.reactions || []), { emoji, count: 1, user_ids: [userId] }];
+            } else if (existing) {
+              msg.reactions = existing.count <= 1
+                ? msg.reactions?.filter((reaction: ReactionSummary) => reaction.emoji !== emoji)
+                : msg.reactions?.map((reaction: ReactionSummary) =>
+                    reaction.emoji === emoji
+                      ? { ...reaction, count: reaction.count - 1, user_ids: reaction.user_ids.filter((id: number) => id !== userId) }
+                      : reaction
                   );
-              msg.reactions = updated;
             }
             next[idx] = msg;
             return next;
