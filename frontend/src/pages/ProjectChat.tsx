@@ -59,6 +59,7 @@ export function ProjectChatPage() {
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [channel, setChannel] = useState("general");
   const channelRef = useRef(channel);
+  const searchQueryRef = useRef("");
   channelRef.current = channel;
   const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
@@ -327,6 +328,7 @@ export function ProjectChatPage() {
         if (payload.type !== "message") return;
         const messageChannel = payload.channel || "general";
         if (messageChannel !== channelRef.current) return;
+        if (searchQueryRef.current && !payload.text.toLocaleLowerCase().includes(searchQueryRef.current)) return;
         setMessagesData((current) => {
           // Attachment uploads reuse the original message id and broadcast an update.
           const existingIndex = current.findIndex((item) => item.id === payload.id);
@@ -421,7 +423,10 @@ export function ProjectChatPage() {
     lastMessageIdRef.current = null;
     previousLastIdRef.current = null;
     shouldStickToBottomRef.current = true;
+    searchQueryRef.current = "";
+    setSearchText("");
     setMessagesData([]);
+    messagesDataRef.current = [];
     setHasOlderMessages(false);
     void loadMessages({ force: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -665,7 +670,11 @@ export function ProjectChatPage() {
   const searchMessages = async (value: string) => {
     if (!projectId) return;
     const query = value.trim();
+    searchQueryRef.current = query.toLocaleLowerCase();
     if (!query) {
+      setMessagesData([]);
+      messagesDataRef.current = [];
+      lastMessageIdRef.current = null;
       void loadMessages({ force: true });
       return;
     }
