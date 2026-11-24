@@ -17,11 +17,17 @@ export function ProfileAccountPage() {
     });
   }, [form, user]);
 
-  const onUpdateMe = async (values: { email?: string; username?: string }) => {
+  const onUpdateMe = async (values: { email?: string; username?: string; current_password?: string }) => {
     try {
+      const emailChanged = Boolean(values.email && values.email !== user?.email);
       await api.put("/users/me", values);
-      message.success("Профиль обновлен");
-      loadMe();
+      message.success(
+        emailChanged
+          ? "Почта изменена. Подтвердите новый адрес по ссылке из письма."
+          : "Профиль обновлен"
+      );
+      form.resetFields(["current_password"]);
+      await loadMe();
     } catch {
       message.error("Не удалось обновить профиль");
     }
@@ -56,6 +62,12 @@ export function ProfileAccountPage() {
           </Form.Item>
           <Form.Item label="Имя пользователя" name="username">
             <Input placeholder="Например, anna.dev" />
+          </Form.Item>
+          <Form.Item
+            label="Текущий пароль (обязателен только при смене почты)"
+            name="current_password"
+          >
+            <Input.Password />
           </Form.Item>
           <Button type="primary" htmlType="submit">Сохранить</Button>
         </Form>
