@@ -257,9 +257,17 @@ export function ProjectChatPage() {
           return;
         }
         if (payload.type === "announcement") {
-          setAnnouncements((current) =>
-            current.some((item) => item.id === payload.id) ? current : [{ ...payload, localId: String(payload.id) }, ...current]
-          );
+          setAnnouncements((current) => {
+            const updated = current.some((item) => item.id === payload.id)
+              ? current.map((item) => item.id === payload.id
+                ? { ...item, ...payload, localId: String(payload.id) }
+                : item)
+              : [{ ...payload, localId: String(payload.id) }, ...current];
+            return updated.sort((a, b) =>
+              Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)) ||
+              Date.parse(b.created_at) - Date.parse(a.created_at)
+            );
+          });
           return;
         }
 
