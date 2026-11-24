@@ -717,6 +717,7 @@ export function ProjectChatPage() {
       const prepared = data.map((item) => ({ ...item, localId: String(item.id) }));
       setMessagesData(prepared);
       messagesDataRef.current = prepared;
+      setHasOlderMessages(false);
     } catch {
       if (requestId === searchRequestRef.current) message.error("Не удалось выполнить поиск");
     }
