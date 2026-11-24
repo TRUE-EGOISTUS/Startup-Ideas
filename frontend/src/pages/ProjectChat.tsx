@@ -226,10 +226,13 @@ export function ProjectChatPage() {
     setMessagesLoading(true);
     void loadProject();
     void loadMembers();
-    void api.post(`/projects/${projectId}/messages/read`).catch(() => undefined);
-    // Периодически помечаем как прочитанное
+    // Периодически обновляем отметки прочтения только для выбранного канала.
     const readIntervalId = window.setInterval(() => {
-      if (!disposed) void api.post(`/projects/${projectId}/messages/read`).catch(() => undefined);
+      if (!disposed) {
+        void api.post(`/projects/${projectId}/messages/read`, null, {
+          params: { channel: channelRef.current },
+        }).catch(() => undefined);
+      }
     }, 30000);
     void loadAnnouncements();
 
@@ -314,6 +317,7 @@ export function ProjectChatPage() {
         }
 
         if (payload.type === "read") {
+          if (payload.channel && payload.channel !== channelRef.current) return;
           const readerId = payload.reader_id;
           if (readerId !== undefined && payload.read_at) {
             setMessagesData((current) => current.map((item) =>
@@ -416,6 +420,14 @@ export function ProjectChatPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // Mark only the messages from the channel currently being viewed as read.
+  useEffect(() => {
+    if (!projectId) return;
+    void api.post(`/projects/${projectId}/messages/read`, null, {
+      params: { channel },
+    }).catch(() => undefined);
+  }, [projectId, channel]);
 
   // История загружается отдельно для выбранного канала.
   useEffect(() => {
