@@ -520,28 +520,24 @@ export function TaskChatPage() {
   };
 
   const retryMessage = (item: ChatMessage) => {
-    // Если сообщение уже было сохранено на сервере (id > 0), не удаляем его — просто показываем ошибку
-    // Это может случиться, когда WS пришёл позже таймаута 10с
+    // Если сервер уже присвоил id, сообщение доставлено — снимаем только индикатор ошибки.
     if (item.id > 0) {
-      // Сообщение существует на сервере — просто убираем статус ошибки
       setMessagesData((current) =>
-        current.map((m) => m.localId === item.localId ? { ...m, deliveryStatus: undefined as undefined } : m)
+        current.map((messageItem) => messageItem.localId === item.localId
+          ? { ...messageItem, deliveryStatus: undefined }
+          : messageItem)
       );
       return;
     }
-    // Локальное сообщение ещё не сохранено — удаляем и восстанавливаем текст
-    setMessagesData((current) => current.filter((messageItem) => messageItem.localId !== item.localId));
-    setText(item.text);
-    if (item.reply_to_id) {
-      const originalMessage = messagesData.find(m => m.id === item.reply_to_id);
-      if (originalMessage) {
-        setReplyTo({
-          messageId: originalMessage.id,
-          text: originalMessage.text.substring(0, 100),
-          author: originalMessage.sender_name || `User ${originalMessage.user_id}`
-        });
-      }
-    }
+
+    // Для непринятого сервером сообщения повторно используем тот же localId/client_id.
+    // Это защищает от дублей, когда запись сохранилась, а подтверждение WebSocket потерялось.
+    setMessagesData((current) =>
+      current.map((messageItem) => messageItem.localId === item.localId
+        ? { ...messageItem, deliveryStatus: "sending" }
+        : messageItem)
+    );
+    void deliverMessage(item.localId, item.text, item.reply_to_id ?? undefined);
   };
 
   const searchMessages = async (value: string) => {
