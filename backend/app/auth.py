@@ -24,9 +24,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def verify_password(plain_password, hashed_password):
+    # bcrypt accepts at most 72 UTF-8 bytes; reject longer input safely.
+    if len(plain_password.encode("utf-8")) > 72:
+        return False
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=422, detail="Password must not exceed 72 UTF-8 bytes")
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
@@ -281,8 +286,8 @@ def refresh_token(
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     user = db.query(User).filter(User.email == email).first()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
+    if not user or not user.is_active or not user.is_verified:
+        raise HTTPException(status_code=401, detail="User not found, inactive, or email not verified")
 
     if payload.get("token_version", 0) != user.token_version:
         raise HTTPException(status_code=401, detail="Refresh token revoked")
@@ -300,13 +305,47 @@ def refresh_token(
 
 @router.post("/logout")
 def logout(
+    request: Request,
     response: Response,
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Invalidate existing access and refresh tokens server-side, not only in browser.
-    current_user.token_version += 1
-    db.commit()
-    response.delete_cookie("access_token", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
-    response.delete_cookie("refresh_token", httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
+    # Revoke a signed token even when its access-token expiry has elapsed.
+    # This makes logout work when the access token has expired but the cookie
+    # is still present, and it also invalidates the corresponding refresh token.
+    for cookie_name, expected_type in (
+        ("access_token", "access"),
+        ("refresh_token", "refresh"),
+    ):
+        token = request.cookies.get(cookie_name)
+        if not token:
+            continue
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SECRET_KEY,
+                algorithms=[settings.ALGORITHM],
+                options={"verify_exp": False},
+            )
+        except JWTError:
+            continue
+
+        if payload.get("type") != expected_type:
+            continue
+        email = payload.get("sub")
+        if not email:
+            continue
+        user = db.query(User).filter(User.email == email).first()
+        if user and payload.get("token_version", 0) == user.token_version:
+            user.token_version += 1
+            db.commit()
+            break
+
+    response.delete_cookie(
+        "access_token", path="/", httponly=True,
+        samesite="lax", secure=settings.COOKIE_SECURE,
+    )
+    response.delete_cookie(
+        "refresh_token", path="/", httponly=True,
+        samesite="lax", secure=settings.COOKIE_SECURE,
+    )
     return {"message": "Logged out"}
