@@ -54,6 +54,8 @@ class ProjectMessageOut(BaseModel):
     project_id: UUID
     user_id: int
     text: str
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
     channel: str = "general"
     is_announcement: bool = False
     is_pinned: bool = False
