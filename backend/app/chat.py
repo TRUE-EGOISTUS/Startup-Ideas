@@ -754,26 +754,66 @@ async def announce_project_message(
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (max 2000 chars)")
 
-    message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text, is_announcement=True, channel="announcements")
-    db.add(message)
-    for project_member in db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id != current_user.id,
-    ).all():
-        add_notification(
-            db, project_member.user_id, "project_announcement", "Новое объявление проекта",
-            f"Новое объявление в проекте «{project.name}».", f"/projects/{project.id}/chat",
+    message = None
+    if message_data.client_id:
+        message = db.query(ProjectMessage).filter(
+            ProjectMessage.project_id == project_id,
+            ProjectMessage.user_id == current_user.id,
+            ProjectMessage.client_id == message_data.client_id,
+        ).first()
+
+    created_message = message is None
+    if created_message:
+        message = ProjectMessage(
+            project_id=project_id,
+            user_id=current_user.id,
+            text=text,
+            client_id=message_data.client_id,
+            is_announcement=True,
+            channel="announcements",
         )
-    db.commit()
-    db.refresh(message)
+        db.add(message)
+        try:
+            db.commit()
+            db.refresh(message)
+        except IntegrityError:
+            db.rollback()
+            if not message_data.client_id:
+                raise
+            message = db.query(ProjectMessage).filter(
+                ProjectMessage.project_id == project_id,
+                ProjectMessage.user_id == current_user.id,
+                ProjectMessage.client_id == message_data.client_id,
+            ).first()
+            if message is None:
+                raise
+            created_message = False
+
+    if created_message:
+        # Announcement delivery is durable even if notification fan-out fails.
+        try:
+            for project_member in db.query(ProjectMember).filter(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id != current_user.id,
+            ).all():
+                add_notification(
+                    db, project_member.user_id, "project_announcement", "Новое объявление проекта",
+                    f"Новое объявление в проекте «{project.name}».", f"/projects/{project.id}/chat",
+                )
+            db.commit()
+        except Exception:
+            db.rollback()
+
     await _broadcast_project_message(project_id, {
         "type": "announcement",
+        "client_id": message_data.client_id,
         "id": message.id,
         "project_id": str(message.project_id),
         "user_id": message.user_id,
         "text": message.text,
         "channel": message.channel,
         "is_announcement": True,
+        "is_pinned": message.is_pinned,
         "created_at": message.created_at.isoformat(),
         "sender_name": message.sender_name,
         "sender_avatar_url": message.sender_avatar_url,
