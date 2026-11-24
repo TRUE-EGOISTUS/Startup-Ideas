@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db, SessionLocal
 from app.models import (
     Task, Message, User, ProjectMessage, Project, ProjectMember,
@@ -1052,7 +1053,16 @@ async def toggle_task_reaction(
         db.delete(reaction)
     else:
         db.add(MessageReaction(message_id=message_id, user_id=current_user.id, emoji=emoji))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another request created the same reaction concurrently. Read the final state.
+        db.rollback()
+        active = db.query(MessageReaction).filter(
+            MessageReaction.message_id == message_id,
+            MessageReaction.user_id == current_user.id,
+            MessageReaction.emoji == emoji,
+        ).first() is not None
     payload = {"type": "reaction", "message_id": message_id, "emoji": emoji, "user_id": current_user.id, "active": active}
     await _broadcast_task_message(task_id, payload)
     return payload
@@ -1120,7 +1130,15 @@ async def toggle_project_reaction(
         db.delete(reaction)
     else:
         db.add(ProjectMessageReaction(message_id=message_id, user_id=current_user.id, emoji=emoji))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        active = db.query(ProjectMessageReaction).filter(
+            ProjectMessageReaction.message_id == message_id,
+            ProjectMessageReaction.user_id == current_user.id,
+            ProjectMessageReaction.emoji == emoji,
+        ).first() is not None
     payload = {"type": "reaction", "message_id": message_id, "emoji": emoji, "user_id": current_user.id, "active": active}
     await _broadcast_project_message(project_id, payload)
     return payload
