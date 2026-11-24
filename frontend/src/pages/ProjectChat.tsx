@@ -60,6 +60,8 @@ export function ProjectChatPage() {
   const [channel, setChannel] = useState("general");
   const channelRef = useRef(channel);
   const searchQueryRef = useRef("");
+  const channelGenerationRef = useRef(0);
+  const searchRequestRef = useRef(0);
   channelRef.current = channel;
   const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
@@ -141,18 +143,20 @@ export function ProjectChatPage() {
     const owns = !options.force;
     if (owns) requestRef.current = true;
     const generation = generationRef.current;
+    const channelGeneration = channelGenerationRef.current;
+    const requestedChannel = channelRef.current;
     if (!options.silent) setMessagesLoading(true);
     try {
       const { data } = await api.get<Message[]>(`/projects/${projectId}/messages`, {
         params: {
           ...(options.afterId !== undefined ? { after_id: options.afterId } : {}),
           ...(options.beforeId !== undefined ? { before_id: options.beforeId } : {}),
-          channel,
+          channel: requestedChannel,
           limit: PAGE_SIZE
         }
       });
       // Ответ от предыдущего проекта не должен попасть в чат текущего
-      if (generation !== generationRef.current) return;
+      if (generation !== generationRef.current || channelGeneration !== channelGenerationRef.current) return;
       const prepared: ProjectChatMessage[] = data.map((item) => ({ ...item, localId: String(item.id) }));
       if (isOlder) {
         const knownIds = new Set(messagesDataRef.current.map((item) => item.id));
@@ -195,9 +199,13 @@ export function ProjectChatPage() {
         void loadMessages({ afterId: lastMessageIdRef.current, silent: true, force: true });
       }
     } catch {
-      if (generation === generationRef.current && !options.silent) message.error("Не удалось загрузить сообщения проекта");
+      if (
+        generation === generationRef.current &&
+        channelGeneration === channelGenerationRef.current &&
+        !options.silent
+      ) message.error("Не удалось загрузить сообщения проекта");
     } finally {
-      if (generation === generationRef.current) {
+      if (generation === generationRef.current && channelGeneration === channelGenerationRef.current) {
         if (owns) requestRef.current = false;
         if (!options.silent) setMessagesLoading(false);
       }
@@ -432,6 +440,10 @@ export function ProjectChatPage() {
   // История загружается отдельно для выбранного канала.
   useEffect(() => {
     if (!projectId) return;
+    channelGenerationRef.current += 1;
+    searchRequestRef.current += 1;
+    messagesRequestRef.current = false;
+    olderRequestRef.current = false;
     lastMessageIdRef.current = null;
     previousLastIdRef.current = null;
     shouldStickToBottomRef.current = true;
@@ -682,6 +694,9 @@ export function ProjectChatPage() {
   const searchMessages = async (value: string) => {
     if (!projectId) return;
     const query = value.trim();
+    const requestId = ++searchRequestRef.current;
+    const channelGeneration = channelGenerationRef.current;
+    const requestedChannel = channelRef.current;
     searchQueryRef.current = query.toLocaleLowerCase();
     if (!query) {
       setMessagesData([]);
@@ -691,10 +706,19 @@ export function ProjectChatPage() {
       return;
     }
     try {
-      const { data } = await api.get<Message[]>(`/projects/${projectId}/messages`, { params: { search: query, limit: 200, channel } });
-      setMessagesData(data.map((item) => ({ ...item, localId: String(item.id) })));
+      const { data } = await api.get<Message[]>(`/projects/${projectId}/messages`, {
+        params: { search: query, limit: 200, channel: requestedChannel },
+      });
+      if (
+        requestId !== searchRequestRef.current ||
+        channelGeneration !== channelGenerationRef.current ||
+        requestedChannel !== channelRef.current
+      ) return;
+      const prepared = data.map((item) => ({ ...item, localId: String(item.id) }));
+      setMessagesData(prepared);
+      messagesDataRef.current = prepared;
     } catch {
-      message.error("Не удалось выполнить поиск");
+      if (requestId === searchRequestRef.current) message.error("Не удалось выполнить поиск");
     }
   };
 
