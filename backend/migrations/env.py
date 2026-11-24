@@ -10,10 +10,13 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from app.database import Base
 from app.models import *
+from app.config import settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+# Use the same connection string as the application runtime.
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
