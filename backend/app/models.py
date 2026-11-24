@@ -165,6 +165,7 @@ class Message(Base):
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
+    client_id = Column(String(64), nullable=True)
     attachment_url = Column(String(500), nullable=True)
     attachment_name = Column(String(255), nullable=True)
     reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True, index=True)
@@ -196,6 +197,13 @@ class Message(Base):
 
     __table_args__ = (
         Index("idx_messages_task_id_created_at", "task_id", "created_at"),
+        Index(
+            "ux_messages_task_user_client_id",
+            "task_id",
+            "user_id",
+            "client_id",
+            unique=True,
+        ),
     )
 class Idea(Base):
     __tablename__ = "ideas"
@@ -312,6 +320,7 @@ class ProjectMessage(Base):
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
+    client_id = Column(String(64), nullable=True)
     attachment_url = Column(String(500), nullable=True)
     attachment_name = Column(String(255), nullable=True)
     channel = Column(String(40), nullable=False, default="general", index=True)
@@ -346,6 +355,13 @@ class ProjectMessage(Base):
 
     __table_args__ = (
         Index("idx_project_messages_project_id_created_at", "project_id", "created_at"),
+        Index(
+            "ux_project_messages_project_user_client_id",
+            "project_id",
+            "user_id",
+            "client_id",
+            unique=True,
+        ),
     )
 
 class MessageReaction(Base):
