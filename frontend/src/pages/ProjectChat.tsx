@@ -15,6 +15,7 @@ import {
   dayLabel,
   initials,
   messageContent,
+  mergeChatMessages,
   nextLocalId,
   resolveAttachmentUrl,
   resolveAvatarUrl,
@@ -166,32 +167,13 @@ export function ProjectChatPage() {
           const stream = streamRef.current;
           preserveScrollRef.current = stream ? { top: stream.scrollTop, height: stream.scrollHeight } : null;
         }
-        setMessagesData((current) => {
-          const ids = new Set(current.map((item) => item.id));
-          return [...prepared.filter((item) => !ids.has(item.id)), ...current];
-        });
+        setMessagesData((current) => mergeChatMessages(current, data));
         setHasOlderMessages(data.length === PAGE_SIZE);
       } else if (options.afterId !== undefined) {
-        setMessagesData((current) => {
-          const ids = new Set(current.map((item) => item.id));
-          return [...current, ...prepared.filter((item) => !ids.has(item.id))];
-        });
+        setMessagesData((current) => mergeChatMessages(current, data));
       } else {
         // Merge with live WebSocket updates received while this REST request was running.
-        const merged = new Map(messagesDataRef.current.map((item) => [item.id, item]));
-        for (const item of prepared) {
-          const existing = merged.get(item.id);
-          merged.set(item.id, {
-            ...existing,
-            ...item,
-            localId: existing?.localId || String(item.id),
-            deliveryStatus: undefined,
-          });
-        }
-        const combined = [...merged.values()].sort((a, b) =>
-          Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id
-        );
-        setMessagesData(combined);
+        setMessagesData(mergeChatMessages(messagesDataRef.current, data));
         setHasOlderMessages(data.length === PAGE_SIZE);
       }
       if (data.length > 0 && !isOlder) bumpLastMessageId(data[data.length - 1].id);
@@ -540,7 +522,7 @@ export function ProjectChatPage() {
     const optimisticId = -Date.now();
     shouldStickToBottomRef.current = true;
     setMessagesData((current) => [...current, {
-      id: optimisticId, localId, project_id: projectId, user_id: user?.id ?? 0, text: messageText,
+      id: optimisticId, localId, project_id: projectId, user_id: user?.id ?? 0, client_id: localId, text: messageText,
       created_at: new Date().toISOString(), sender_name: user?.username || user?.email || "Вы", channel, deliveryStatus: "sending"
     }]);
     setText("");
