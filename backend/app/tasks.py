@@ -223,6 +223,8 @@ def create_response(
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    if task.visibility != "public" and task.author_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
     
     if task.status != "open":
         raise HTTPException(status_code=400, detail="Task is not open for responses")
@@ -497,6 +499,8 @@ def submit_open_solution(
         raise HTTPException(status_code=404, detail="Task not found")
     if task.execution_mode != "open":
         raise HTTPException(status_code=400, detail="Task is not in open execution mode")
+    if task.visibility != "public" and task.author_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
     
     # Проверка дедлайна для открытых задач
     now_utc = datetime.utcnow()
@@ -658,16 +662,8 @@ def reject_solution(
         f"Ваше решение по задаче «{task.title}» отклонено.", f"/tasks/{task.id}",
     )
 
-    # Проверяем, остались ли ещё pending решения
-    pending_count = db.query(TaskExecution).filter(
-        TaskExecution.task_id == task_id,
-        TaskExecution.status == "pending"
-    ).count()
-    if pending_count == 0:
-        _delete_task_tree(task, db)
-
-    db.commit()
-    _refresh_task_display_ids(db)
+    # Отклонение последнего решения не закрывает задачу автоматически:
+    # у автора остаётся возможность оставить её открытой или закрыть отдельно.
     db.commit()
     return {"message": "Solution rejected", "task_status": task.status}
 
