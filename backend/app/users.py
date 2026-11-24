@@ -13,6 +13,8 @@ from app.auth import (
     get_password_hash,
     create_access_token,
     create_refresh_token,
+    create_email_verification_token,
+    send_verification_email,
 )
 from app.config import settings
 from app.schemas.user import (
@@ -29,6 +31,7 @@ import hashlib
 import secrets
 import os
 import uuid
+import smtplib
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -271,7 +274,11 @@ def list_home_specialists(
     query = (
         db.query(User)
         .join(SpecialistProfile, SpecialistProfile.user_id == User.id)
-        .filter(User.role == UserRole.SPECIALIST, User.is_active.is_(True))
+        .filter(
+            User.role == UserRole.SPECIALIST,
+            User.is_active.is_(True),
+            User.is_verified.is_(True),
+        )
         .options(selectinload(User.specialist_profile))
     )
     if search:
@@ -475,19 +482,58 @@ def update_me(
 ):
     email_changed = False
     if user_data.email is not None:
-        existing = db.query(User).filter(User.email == user_data.email, User.id != current_user.id).first()
+        existing = db.query(User).filter(
+            User.email == user_data.email,
+            User.id != current_user.id,
+        ).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
+
         email_changed = user_data.email != current_user.email
-        current_user.email = user_data.email
+        if email_changed:
+            if not user_data.current_password or not verify_password(
+                user_data.current_password, current_user.hashed_password
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Current password is required to change email",
+                )
+            verification_token = create_email_verification_token(user_data.email)
+            try:
+                # Send before committing so a mail-delivery error does not leave
+                # the account attached to an address it cannot verify.
+                send_verification_email(user_data.email, verification_token)
+            except RuntimeError as exc:
+                db.rollback()
+                raise HTTPException(status_code=503, detail=str(exc))
+            except (OSError, smtplib.SMTPException):
+                db.rollback()
+                raise HTTPException(
+                    status_code=503,
+                    detail="Could not send email verification message",
+                )
+
+            current_user.email = user_data.email
+            current_user.is_verified = False
+
     if user_data.username is not None:
-        existing = db.query(User).filter(User.username == user_data.username, User.id != current_user.id).first()
+        existing = db.query(User).filter(
+            User.username == user_data.username,
+            User.id != current_user.id,
+        ).first()
         if existing:
+            db.rollback()
             raise HTTPException(status_code=400, detail="Username already taken")
         current_user.username = user_data.username
+
     db.commit()
     if email_changed:
-        token_data = {"sub": current_user.email, "token_version": current_user.token_version}
+        # The access token keeps the active browser session alive while the
+        # new address is being verified. Refresh is blocked until verification.
+        token_data = {
+            "sub": current_user.email,
+            "token_version": current_user.token_version,
+        }
         response.set_cookie(
             key="access_token",
             value=create_access_token(token_data),
@@ -572,10 +618,14 @@ async def upload_avatar(
     if file.content_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=415, detail="Unsupported file type")
 
-    # Читаем содержимое, сразу контролируя размер
+    # Читаем содержимое, сразу контролируя размер.
     content = await file.read(MAX_SIZE + 1)
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="File too large")
+    if file.content_type == "image/jpeg" and not content.startswith(b"\xff\xd8\xff"):
+        raise HTTPException(status_code=415, detail="Invalid JPEG file")
+    if file.content_type == "image/png" and not content.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=415, detail="Invalid PNG file")
 
     if image_type not in {"avatar", "cover"}:
         raise HTTPException(status_code=400, detail="Unsupported profile image type")
@@ -618,7 +668,11 @@ def get_user_public(
     user = db.query(User).options(
         selectinload(User.specialist_profile),
         selectinload(User.company_profile)
-    ).filter(User.id == user_id).first()
+    ).filter(
+        User.id == user_id,
+        User.is_active.is_(True),
+        User.is_verified.is_(True),
+    ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
