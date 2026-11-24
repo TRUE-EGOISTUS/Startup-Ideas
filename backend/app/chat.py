@@ -12,6 +12,7 @@ from app.models import (
 from app.auth import get_current_user
 from app.schemas.chat import MessageCreate, MessageOut, ProjectMessageCreate, ProjectMessageOut, ReactionCreate, ReactionSummary
 from app.notifications import add_notification
+from app.config import settings
 from datetime import datetime, timezone
 from typing import Any
 import re
@@ -90,6 +91,19 @@ def _notify_mentions(db: Session, text: str, author_id: int, link: str, context:
             link,
         )
 
+def _is_allowed_chat_origin(origin: str | None) -> bool:
+    if not origin:
+        return False
+    allowed = {
+        value.strip().rstrip("/")
+        for value in settings.CORS_ORIGINS.split(",")
+        if value.strip()
+    }
+    if settings.FRONTEND_URL.strip():
+        allowed.add(settings.FRONTEND_URL.strip().rstrip("/"))
+    return origin.strip().rstrip("/") in allowed
+
+
 def _can_access_task_chat(task: Task, user: User) -> bool:
     if task.execution_mode == "classic" and task.assigned_to_id is None:
         return False
@@ -117,6 +131,10 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
     try:
         await websocket.accept()
     except Exception:
+        return
+
+    if not _is_allowed_chat_origin(websocket.headers.get("origin")):
+        await websocket.close(code=4003)
         return
 
     token = websocket.cookies.get("access_token")
@@ -474,6 +492,10 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
     try:
         await websocket.accept()
     except Exception:
+        return
+
+    if not _is_allowed_chat_origin(websocket.headers.get("origin")):
+        await websocket.close(code=4003)
         return
 
     token = websocket.cookies.get("access_token")
