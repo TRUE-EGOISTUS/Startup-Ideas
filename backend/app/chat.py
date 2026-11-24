@@ -1,7 +1,9 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db, SessionLocal
 from app.models import (
     Task, Message, User, ProjectMessage, Project, ProjectMember,
@@ -18,6 +20,7 @@ import uuid
 
 router = APIRouter(prefix="/tasks/{task_id}/messages", tags=["chat"])
 project_router = APIRouter(prefix="/projects", tags=["project-chat"])
+attachments_router = APIRouter(tags=["chat-attachments"])
 task_chat_connections: dict[UUID, set[WebSocket]] = {}
 
 
@@ -25,6 +28,8 @@ def _serialize_message(msg: Message) -> dict[str, Any]:
     """Сериализуем ORM-объект Message в dict с правильными ReactionSummary."""
     result = msg.__dict__.copy()
     result["reactions"] = _build_reaction_summaries(msg.reactions)
+    result["sender_name"] = msg.sender_name
+    result["sender_avatar_url"] = msg.sender_avatar_url
     result.pop("_sa_instance_state", None)
     return result
 
@@ -33,6 +38,8 @@ def _serialize_project_message(msg: ProjectMessage) -> dict[str, Any]:
     """Сериализуем ORM-объект ProjectMessage в dict с правильными ReactionSummary."""
     result = msg.__dict__.copy()
     result["reactions"] = _build_reaction_summaries(msg.reactions)
+    result["sender_name"] = msg.sender_name
+    result["sender_avatar_url"] = msg.sender_avatar_url
     result.pop("_sa_instance_state", None)
     return result
 project_chat_connections: dict[UUID, set[WebSocket]] = {}
@@ -115,6 +122,23 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
         await websocket.close(code=4001)
         return
 
+    from app.auth import get_current_user_from_token
+    auth_db = SessionLocal()
+    try:
+        current_user = get_current_user_from_token(token, auth_db)
+        task = auth_db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            await websocket.close(code=4004)
+            return
+        if not _can_access_task_chat(task, current_user):
+            await websocket.close(code=4003)
+            return
+    except HTTPException:
+        await websocket.close(code=4001)
+        return
+    finally:
+        auth_db.close()
+
     try:
         await websocket.accept()
     except Exception:
@@ -122,8 +146,6 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
 
     task_chat_connections.setdefault(task_id, set()).add(websocket)
     try:
-        from app.auth import get_current_user_from_token
-
         while True:
             try:
                 raw = await websocket.receive_json()
@@ -132,6 +154,25 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 continue
             if not isinstance(raw, dict):
                 await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                continue
+
+            if raw.get("type") == "ping":
+                ping_db = SessionLocal()
+                try:
+                    ping_user = get_current_user_from_token(token, ping_db)
+                    ping_task = ping_db.query(Task).filter(Task.id == task_id).first()
+                    if not ping_task:
+                        await websocket.close(code=4004)
+                        return
+                    if not _can_access_task_chat(ping_task, ping_user):
+                        await websocket.close(code=4003)
+                        return
+                    await websocket.send_json({"type": "pong"})
+                except HTTPException:
+                    await websocket.close(code=4001)
+                    return
+                finally:
+                    ping_db.close()
                 continue
 
             # Bug 13: валидация text — None → "", убираем "None"
@@ -172,6 +213,15 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 await websocket.close(code=4003)
                 return
 
+            client_id = raw.get("client_id")
+            if client_id is not None and (
+                not isinstance(client_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", client_id)
+            ):
+                db.close()
+                await websocket.send_json({"type": "error", "detail": "Invalid client_id"})
+                continue
+
             if reply_to_id is not None:
                 exists = db.query(Message).filter(
                     Message.id == reply_to_id, Message.task_id == task_id
@@ -181,45 +231,43 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                     await websocket.send_json({"type": "error", "detail": "Reply target not found"})
                     continue
 
-            chat_message = Message(
-                task_id=task_id,
-                user_id=current_user.id,
-                text=text,
-                reply_to_id=reply_to_id,
-            )
-            db.add(chat_message)
-            db.commit()
-            db.refresh(chat_message)
-
-            # Bug 16: помечаем чужие сообщения как прочитанные при получении
-            try:
-                db.query(Message).filter(
+            chat_message = None
+            if client_id:
+                chat_message = db.query(Message).filter(
                     Message.task_id == task_id,
-                    Message.user_id != current_user.id,
-                    Message.read_at.is_(None),
-                ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
-                db.commit()
-            except Exception:
-                pass
+                    Message.user_id == current_user.id,
+                    Message.client_id == client_id,
+                ).first()
 
-            # Bug 11: try/except вокруг уведомлений и broadcast
-            try:
-                recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
-                if recipient_id:
-                    add_notification(
-                        db, recipient_id, "task_message_received", "Новое сообщение по задаче",
-                        f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
-                    )
-                _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+            is_new_message = chat_message is None
+            if is_new_message:
+                chat_message = Message(
+                    task_id=task_id,
+                    user_id=current_user.id,
+                    text=text,
+                    reply_to_id=reply_to_id,
+                    client_id=client_id,
+                )
+                db.add(chat_message)
                 db.commit()
                 db.refresh(chat_message)
-            except Exception:
-                # Не теряем сообщение — оно уже сохранено
-                pass
 
-            await _broadcast_task_message(task_id, {
+                try:
+                    recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+                    if recipient_id:
+                        add_notification(
+                            db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                            f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+                        )
+                    _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+                    db.commit()
+                    db.refresh(chat_message)
+                except Exception:
+                    db.rollback()
+
+            payload = {
                 "type": "message",
-                "client_id": raw.get("client_id"),
+                "client_id": client_id,
                 "id": chat_message.id,
                 "task_id": str(chat_message.task_id),
                 "user_id": chat_message.user_id,
@@ -228,11 +276,20 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 "sender_name": chat_message.sender_name,
                 "sender_avatar_url": chat_message.sender_avatar_url,
                 **_message_metadata(chat_message),
-            })
+            }
+            db.close()
+            await _broadcast_task_message(task_id, payload)
     except WebSocketDisconnect:
         pass
     finally:
-        task_chat_connections.get(task_id, set()).discard(websocket)
+        active_db = locals().get("db")
+        if active_db is not None:
+            active_db.close()
+        connections = task_chat_connections.get(task_id)
+        if connections is not None:
+            connections.discard(websocket)
+            if not connections:
+                task_chat_connections.pop(task_id, None)
 
 @router.post("/", response_model=MessageOut)
 async def send_message(
@@ -257,20 +314,38 @@ async def send_message(
         Message.id == message_data.reply_to_id, Message.task_id == task_id
     ).first():
         raise HTTPException(status_code=400, detail="Reply target not found")
-    message = Message(task_id=task_id, user_id=current_user.id, text=text, reply_to_id=message_data.reply_to_id)
-    db.add(message)
-    recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
-    if recipient_id:
-        add_notification(
-            db, recipient_id, "task_message_received", "Новое сообщение по задаче",
-            f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+
+    message = None
+    if message_data.client_id:
+        message = db.query(Message).filter(
+            Message.task_id == task_id,
+            Message.user_id == current_user.id,
+            Message.client_id == message_data.client_id,
+        ).first()
+
+    if message is None:
+        message = Message(
+            task_id=task_id,
+            user_id=current_user.id,
+            text=text,
+            reply_to_id=message_data.reply_to_id,
+            client_id=message_data.client_id,
         )
-    _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
-    db.commit()
-    db.refresh(message)
-    # Рассылка по WebSocket после сохранения сообщения по HTTP
+        db.add(message)
+        recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+        if recipient_id:
+            add_notification(
+                db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+            )
+        _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+        db.commit()
+        db.refresh(message)
+
+    # Повторный запрос с тем же client_id возвращает ту же запись, а не дублирует её.
     await _broadcast_task_message(task_id, {
         "type": "message",
+        "client_id": message_data.client_id,
         "id": message.id,
         "task_id": str(message.task_id),
         "user_id": message.user_id,
@@ -283,7 +358,7 @@ async def send_message(
     return _serialize_message(message)
 
 @router.post("/read")
-def mark_task_messages_read(
+async def mark_task_messages_read(
     task_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -292,13 +367,19 @@ def mark_task_messages_read(
     if not task or not _can_access_task_chat(task, current_user):
         raise HTTPException(status_code=403, detail="You are not a participant")
     now = datetime.now(timezone.utc)
-    db.query(Message).filter(
+    updated_count = db.query(Message).filter(
         Message.task_id == task_id,
         Message.user_id != current_user.id,
         Message.read_at.is_(None),
     ).update({"read_at": now}, synchronize_session=False)
     db.commit()
-    return {"read_at": now.isoformat()}
+    if updated_count:
+        await _broadcast_task_message(task_id, {
+            "type": "read",
+            "reader_id": current_user.id,
+            "read_at": now.isoformat(),
+        })
+    return {"read_at": now.isoformat(), "updated_count": updated_count}
 
 @router.get("/", response_model=list[MessageOut])
 def get_messages(
@@ -357,6 +438,27 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
         await websocket.close(code=4001)
         return
 
+    from app.auth import get_current_user_from_token
+    auth_db = SessionLocal()
+    try:
+        current_user = get_current_user_from_token(token, auth_db)
+        project = auth_db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            await websocket.close(code=4004)
+            return
+        member = auth_db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == current_user.id,
+        ).first()
+        if not member:
+            await websocket.close(code=4003)
+            return
+    except HTTPException:
+        await websocket.close(code=4001)
+        return
+    finally:
+        auth_db.close()
+
     try:
         await websocket.accept()
     except Exception:
@@ -364,8 +466,6 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
 
     project_chat_connections.setdefault(project_id, set()).add(websocket)
     try:
-        from app.auth import get_current_user_from_token
-
         while True:
             try:
                 raw = await websocket.receive_json()
@@ -374,6 +474,29 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 continue
             if not isinstance(raw, dict):
                 await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                continue
+
+            if raw.get("type") == "ping":
+                ping_db = SessionLocal()
+                try:
+                    ping_user = get_current_user_from_token(token, ping_db)
+                    ping_project = ping_db.query(Project).filter(Project.id == project_id).first()
+                    if not ping_project:
+                        await websocket.close(code=4004)
+                        return
+                    ping_member = ping_db.query(ProjectMember).filter(
+                        ProjectMember.project_id == project_id,
+                        ProjectMember.user_id == ping_user.id,
+                    ).first()
+                    if not ping_member:
+                        await websocket.close(code=4003)
+                        return
+                    await websocket.send_json({"type": "pong"})
+                except HTTPException:
+                    await websocket.close(code=4001)
+                    return
+                finally:
+                    ping_db.close()
                 continue
 
             # Bug 13: валидация text — None → "", убираем "None"
@@ -420,6 +543,15 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 await websocket.close(code=4003)
                 return
 
+            client_id = raw.get("client_id")
+            if client_id is not None and (
+                not isinstance(client_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", client_id)
+            ):
+                db.close()
+                await websocket.send_json({"type": "error", "detail": "Invalid client_id"})
+                continue
+
             if reply_to_id is not None:
                 exists = db.query(ProjectMessage).filter(
                     ProjectMessage.id == reply_to_id, ProjectMessage.project_id == project_id
@@ -429,47 +561,46 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                     await websocket.send_json({"type": "error", "detail": "Reply target not found"})
                     continue
 
-            chat_message = ProjectMessage(
-                project_id=project_id,
-                user_id=current_user.id,
-                text=text,
-                reply_to_id=reply_to_id,
-                channel=channel,
-            )
-            db.add(chat_message)
-            db.commit()
-            db.refresh(chat_message)
-
-            # Bug 16: помечаем чужие сообщения как прочитанные при получении
-            try:
-                db.query(ProjectMessage).filter(
+            chat_message = None
+            if client_id:
+                chat_message = db.query(ProjectMessage).filter(
                     ProjectMessage.project_id == project_id,
-                    ProjectMessage.user_id != current_user.id,
-                    ProjectMessage.read_at.is_(None),
-                ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
-                db.commit()
-            except Exception:
-                pass
+                    ProjectMessage.user_id == current_user.id,
+                    ProjectMessage.client_id == client_id,
+                ).first()
 
-            # Bug 11: try/except вокруг уведомлений и broadcast
-            try:
-                for project_member in db.query(ProjectMember).filter(
-                    ProjectMember.project_id == project_id,
-                    ProjectMember.user_id != current_user.id,
-                ).all():
-                    add_notification(
-                        db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
-                        f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
-                    )
-                _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+            is_new_message = chat_message is None
+            if is_new_message:
+                chat_message = ProjectMessage(
+                    project_id=project_id,
+                    user_id=current_user.id,
+                    text=text,
+                    reply_to_id=reply_to_id,
+                    channel=channel,
+                    client_id=client_id,
+                )
+                db.add(chat_message)
                 db.commit()
                 db.refresh(chat_message)
-            except Exception:
-                pass
 
-            await _broadcast_project_message(project_id, {
+                try:
+                    for project_member in db.query(ProjectMember).filter(
+                        ProjectMember.project_id == project_id,
+                        ProjectMember.user_id != current_user.id,
+                    ).all():
+                        add_notification(
+                            db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                            f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+                        )
+                    _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+                    db.commit()
+                    db.refresh(chat_message)
+                except Exception:
+                    db.rollback()
+
+            payload = {
                 "type": "message",
-                "client_id": raw.get("client_id"),
+                "client_id": client_id,
                 "id": chat_message.id,
                 "project_id": str(chat_message.project_id),
                 "user_id": chat_message.user_id,
@@ -480,11 +611,20 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 "sender_name": chat_message.sender_name,
                 "sender_avatar_url": chat_message.sender_avatar_url,
                 **_project_message_metadata(chat_message),
-            })
+            }
+            db.close()
+            await _broadcast_project_message(project_id, payload)
     except WebSocketDisconnect:
         pass
     finally:
-        project_chat_connections.get(project_id, set()).discard(websocket)
+        active_db = locals().get("db")
+        if active_db is not None:
+            active_db.close()
+        connections = project_chat_connections.get(project_id)
+        if connections is not None:
+            connections.discard(websocket)
+            if not connections:
+                project_chat_connections.pop(project_id, None)
 
 async def _broadcast_project_message(project_id: UUID, payload: dict) -> None:
     connections = project_chat_connections.get(project_id)
@@ -570,12 +710,13 @@ def get_project_announcements(
     if not member:
         raise HTTPException(status_code=403, detail="You are not a member")
 
-    return db.query(ProjectMessage).options(
+    messages = db.query(ProjectMessage).options(
         joinedload(ProjectMessage.user).joinedload(User.specialist_profile),
         joinedload(ProjectMessage.user).joinedload(User.company_profile),
+        joinedload(ProjectMessage.reactions),
     ).filter(
         ProjectMessage.project_id == project_id,
-        ProjectMessage.is_announcement == True
+        ProjectMessage.is_announcement.is_(True),
     ).order_by(ProjectMessage.is_pinned.desc(), ProjectMessage.created_at.desc()).all()
     return [_serialize_project_message(msg) for msg in messages]
 
@@ -608,22 +749,41 @@ async def send_project_message(
     ).first():
         raise HTTPException(status_code=400, detail="Reply target not found")
     channel = _validate_channel(message_data.channel)
-    message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text, reply_to_id=message_data.reply_to_id, channel=channel)
-    db.add(message)
-    for project_member in db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id != current_user.id,
-    ).all():
-        add_notification(
-            db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
-            f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+
+    message = None
+    if message_data.client_id:
+        message = db.query(ProjectMessage).filter(
+            ProjectMessage.project_id == project_id,
+            ProjectMessage.user_id == current_user.id,
+            ProjectMessage.client_id == message_data.client_id,
+        ).first()
+
+    if message is None:
+        message = ProjectMessage(
+            project_id=project_id,
+            user_id=current_user.id,
+            text=text,
+            reply_to_id=message_data.reply_to_id,
+            channel=channel,
+            client_id=message_data.client_id,
         )
-    _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
-    db.commit()
-    db.refresh(message)
-    # Рассылка по WebSocket после сохранения сообщения по HTTP
+        db.add(message)
+        for project_member in db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id != current_user.id,
+        ).all():
+            add_notification(
+                db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+            )
+        _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+        db.commit()
+        db.refresh(message)
+
+    # Повторный запрос с тем же client_id не создаёт копию сообщения.
     await _broadcast_project_message(project_id, {
         "type": "message",
+        "client_id": message_data.client_id,
         "id": message.id,
         "project_id": str(message.project_id),
         "user_id": message.user_id,
@@ -637,7 +797,7 @@ async def send_project_message(
     return _serialize_project_message(message)
 
 @project_router.post("/{project_id}/messages/read")
-def mark_project_messages_read(
+async def mark_project_messages_read(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -649,13 +809,19 @@ def mark_project_messages_read(
     if not member:
         raise HTTPException(status_code=403, detail="You are not a member")
     now = datetime.now(timezone.utc)
-    db.query(ProjectMessage).filter(
+    updated_count = db.query(ProjectMessage).filter(
         ProjectMessage.project_id == project_id,
         ProjectMessage.user_id != current_user.id,
         ProjectMessage.read_at.is_(None),
     ).update({"read_at": now}, synchronize_session=False)
     db.commit()
-    return {"read_at": now.isoformat()}
+    if updated_count:
+        await _broadcast_project_message(project_id, {
+            "type": "read",
+            "reader_id": current_user.id,
+            "read_at": now.isoformat(),
+        })
+    return {"read_at": now.isoformat(), "updated_count": updated_count}
 
 @project_router.post("/{project_id}/messages/{message_id}/pin", response_model=ProjectMessageOut)
 async def pin_project_message(
@@ -681,7 +847,7 @@ async def pin_project_message(
     db.refresh(message)
     # Рассылка по WebSocket после закрепления
     await _broadcast_project_message(project_id, {
-        "type": "message",
+        "type": "announcement",
         "id": message.id,
         "project_id": str(message.project_id),
         "user_id": message.user_id,
@@ -788,31 +954,79 @@ async def _store_chat_attachment(file: UploadFile) -> tuple[str, str]:
     safe_name = _validate_filename(file.filename)
     ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
 
-    directory = "static/uploads/chat"
+    directory = os.path.join("static", "uploads", "chat")
     os.makedirs(directory, exist_ok=True)
     filename = f"{uuid.uuid4().hex}.{ext}"
     filepath = os.path.join(directory, filename)
 
     written = 0
-    while True:
-        chunk = await file.read(1024 * 256)  # 256 KB chunks
-        if not chunk:
-            break
-        written += len(chunk)
-        if written > CHAT_MAX_FILE_SIZE:
-            # Чистим частично записанный файл при превышении лимита
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            raise HTTPException(status_code=413, detail="File is too large (max 10 MB)")
-        with open(filepath, "ab") as target:
-            target.write(chunk)
+    try:
+        with open(filepath, "xb") as target:
+            while True:
+                chunk = await file.read(1024 * 256)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > CHAT_MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="File is too large (max 10 MB)")
+                target.write(chunk)
+    except Exception:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
 
     if written == 0:
         if os.path.exists(filepath):
             os.remove(filepath)
         raise HTTPException(status_code=400, detail="Empty file")
 
+    # Этот URL обслуживается авторизованным endpoint, а не публичной StaticFiles.
     return f"/static/uploads/chat/{filename}", safe_name
+
+@attachments_router.get("/static/uploads/chat/{filename}")
+def download_chat_attachment(
+    filename: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename or safe_filename in {"", ".", ".."}:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    attachment_url = f"/static/uploads/chat/{safe_filename}"
+    task_message = db.query(Message).filter(Message.attachment_url == attachment_url).first()
+    project_message = None
+
+    if task_message is not None:
+        task = db.query(Task).filter(Task.id == task_message.task_id).first()
+        if task is None or not _can_access_task_chat(task, current_user):
+            raise HTTPException(status_code=403, detail="You are not allowed to download this attachment")
+        original_name = task_message.attachment_name or safe_filename
+    else:
+        project_message = db.query(ProjectMessage).filter(
+            ProjectMessage.attachment_url == attachment_url
+        ).first()
+        if project_message is None:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        member = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_message.project_id,
+            ProjectMember.user_id == current_user.id,
+        ).first()
+        if member is None:
+            raise HTTPException(status_code=403, detail="You are not allowed to download this attachment")
+        original_name = project_message.attachment_name or safe_filename
+
+    filepath = os.path.abspath(os.path.join("static", "uploads", "chat", safe_filename))
+    directory = os.path.abspath(os.path.join("static", "uploads", "chat"))
+    if os.path.commonpath([filepath, directory]) != directory or not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Attachment file not found")
+
+    return FileResponse(
+        filepath,
+        media_type="application/octet-stream",
+        filename=original_name,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 @router.post("/{message_id}/reactions")
 async def toggle_task_reaction(
@@ -839,7 +1053,16 @@ async def toggle_task_reaction(
         db.delete(reaction)
     else:
         db.add(MessageReaction(message_id=message_id, user_id=current_user.id, emoji=emoji))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another request created the same reaction concurrently. Read the final state.
+        db.rollback()
+        active = db.query(MessageReaction).filter(
+            MessageReaction.message_id == message_id,
+            MessageReaction.user_id == current_user.id,
+            MessageReaction.emoji == emoji,
+        ).first() is not None
     payload = {"type": "reaction", "message_id": message_id, "emoji": emoji, "user_id": current_user.id, "active": active}
     await _broadcast_task_message(task_id, payload)
     return payload
@@ -907,7 +1130,15 @@ async def toggle_project_reaction(
         db.delete(reaction)
     else:
         db.add(ProjectMessageReaction(message_id=message_id, user_id=current_user.id, emoji=emoji))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        active = db.query(ProjectMessageReaction).filter(
+            ProjectMessageReaction.message_id == message_id,
+            ProjectMessageReaction.user_id == current_user.id,
+            ProjectMessageReaction.emoji == emoji,
+        ).first() is not None
     payload = {"type": "reaction", "message_id": message_id, "emoji": emoji, "user_id": current_user.id, "active": active}
     await _broadcast_project_message(project_id, payload)
     return payload
