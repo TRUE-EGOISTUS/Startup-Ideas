@@ -132,6 +132,8 @@ export const WS_PING_INTERVAL_MS = 25000;
 export const WS_RECONNECT_BASE_MS = 1000;
 export const WS_RECONNECT_MAX_MS = 30000;
 
+const NO_RECONNECT_CODES = new Set([4001, 4003, 4004]);
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -167,9 +169,11 @@ export function scheduleReconnect(
   ref: { current: number | null },
   disposedRef: { current: boolean },
   visibilityCheck: () => boolean,
-  attempt: number
+  attempt: number,
+  closeCode?: number
 ) {
   if (disposedRef.current || !visibilityCheck()) return;
+  if (closeCode !== undefined && NO_RECONNECT_CODES.has(closeCode)) return;
   const delay = Math.min(
     WS_RECONNECT_BASE_MS * Math.pow(2, Math.min(attempt, 10)),
     WS_RECONNECT_MAX_MS
