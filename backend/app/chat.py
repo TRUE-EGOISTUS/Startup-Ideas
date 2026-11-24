@@ -942,7 +942,8 @@ def _validate_filename(filename: str) -> str:
     """Проверяем расширение и очищаем имя файла."""
     if not filename:
         raise HTTPException(status_code=400, detail="File name is required")
-    safe_name = os.path.basename(filename).replace("\x00", "")
+    safe_name = os.path.basename(filename.replace("\\", "/")).replace("\x00", "")
+    safe_name = "".join(character for character in safe_name if character.isprintable())
     ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
     if ext not in CHAT_ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed")
@@ -1025,7 +1026,10 @@ def download_chat_attachment(
         filepath,
         media_type="application/octet-stream",
         filename=original_name,
-        headers={"X-Content-Type-Options": "nosniff"},
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
     )
 
 @router.post("/{message_id}/reactions")
