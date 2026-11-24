@@ -27,6 +27,8 @@ def _serialize_message(msg: Message) -> dict[str, Any]:
     """Сериализуем ORM-объект Message в dict с правильными ReactionSummary."""
     result = msg.__dict__.copy()
     result["reactions"] = _build_reaction_summaries(msg.reactions)
+    result["sender_name"] = msg.sender_name
+    result["sender_avatar_url"] = msg.sender_avatar_url
     result.pop("_sa_instance_state", None)
     return result
 
@@ -35,6 +37,8 @@ def _serialize_project_message(msg: ProjectMessage) -> dict[str, Any]:
     """Сериализуем ORM-объект ProjectMessage в dict с правильными ReactionSummary."""
     result = msg.__dict__.copy()
     result["reactions"] = _build_reaction_summaries(msg.reactions)
+    result["sender_name"] = msg.sender_name
+    result["sender_avatar_url"] = msg.sender_avatar_url
     result.pop("_sa_instance_state", None)
     return result
 project_chat_connections: dict[UUID, set[WebSocket]] = {}
@@ -362,18 +366,19 @@ async def mark_task_messages_read(
     if not task or not _can_access_task_chat(task, current_user):
         raise HTTPException(status_code=403, detail="You are not a participant")
     now = datetime.now(timezone.utc)
-    db.query(Message).filter(
+    updated_count = db.query(Message).filter(
         Message.task_id == task_id,
         Message.user_id != current_user.id,
         Message.read_at.is_(None),
     ).update({"read_at": now}, synchronize_session=False)
     db.commit()
-    await _broadcast_task_message(task_id, {
-        "type": "read",
-        "reader_id": current_user.id,
-        "read_at": now.isoformat(),
-    })
-    return {"read_at": now.isoformat()}
+    if updated_count:
+        await _broadcast_task_message(task_id, {
+            "type": "read",
+            "reader_id": current_user.id,
+            "read_at": now.isoformat(),
+        })
+    return {"read_at": now.isoformat(), "updated_count": updated_count}
 
 @router.get("/", response_model=list[MessageOut])
 def get_messages(
@@ -803,18 +808,19 @@ async def mark_project_messages_read(
     if not member:
         raise HTTPException(status_code=403, detail="You are not a member")
     now = datetime.now(timezone.utc)
-    db.query(ProjectMessage).filter(
+    updated_count = db.query(ProjectMessage).filter(
         ProjectMessage.project_id == project_id,
         ProjectMessage.user_id != current_user.id,
         ProjectMessage.read_at.is_(None),
     ).update({"read_at": now}, synchronize_session=False)
     db.commit()
-    await _broadcast_project_message(project_id, {
-        "type": "read",
-        "reader_id": current_user.id,
-        "read_at": now.isoformat(),
-    })
-    return {"read_at": now.isoformat()}
+    if updated_count:
+        await _broadcast_project_message(project_id, {
+            "type": "read",
+            "reader_id": current_user.id,
+            "read_at": now.isoformat(),
+        })
+    return {"read_at": now.isoformat(), "updated_count": updated_count}
 
 @project_router.post("/{project_id}/messages/{message_id}/pin", response_model=ProjectMessageOut)
 async def pin_project_message(
@@ -840,7 +846,7 @@ async def pin_project_message(
     db.refresh(message)
     # Рассылка по WebSocket после закрепления
     await _broadcast_project_message(project_id, {
-        "type": "message",
+        "type": "announcement",
         "id": message.id,
         "project_id": str(message.project_id),
         "user_id": message.user_id,
