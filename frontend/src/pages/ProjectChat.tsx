@@ -171,8 +171,21 @@ export function ProjectChatPage() {
           return [...current, ...prepared.filter((item) => !ids.has(item.id))];
         });
       } else {
-        // Полная перезагрузка не должна стирать неотправленные локальные сообщения
-        setMessagesData((current) => [...prepared, ...current.filter((item) => item.deliveryStatus)]);
+        // Merge with live WebSocket updates received while this REST request was running.
+        const merged = new Map(messagesDataRef.current.map((item) => [item.id, item]));
+        for (const item of prepared) {
+          const existing = merged.get(item.id);
+          merged.set(item.id, {
+            ...existing,
+            ...item,
+            localId: existing?.localId || String(item.id),
+            deliveryStatus: undefined,
+          });
+        }
+        const combined = [...merged.values()].sort((a, b) =>
+          Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id
+        );
+        setMessagesData(combined);
         setHasOlderMessages(data.length === PAGE_SIZE);
       }
       if (data.length > 0 && !isOlder) bumpLastMessageId(data[data.length - 1].id);
