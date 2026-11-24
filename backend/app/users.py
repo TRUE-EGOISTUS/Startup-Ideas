@@ -481,6 +481,15 @@ def update_me(
     current_user: User = Depends(get_current_user)
 ):
     email_changed = False
+    if user_data.username is not None:
+        existing = db.query(User).filter(
+            User.username == user_data.username,
+            User.id != current_user.id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already taken")
+        current_user.username = user_data.username
+
     if user_data.email is not None:
         existing = db.query(User).filter(
             User.email == user_data.email,
@@ -515,16 +524,6 @@ def update_me(
 
             current_user.email = user_data.email
             current_user.is_verified = False
-
-    if user_data.username is not None:
-        existing = db.query(User).filter(
-            User.username == user_data.username,
-            User.id != current_user.id,
-        ).first()
-        if existing:
-            db.rollback()
-            raise HTTPException(status_code=400, detail="Username already taken")
-        current_user.username = user_data.username
 
     db.commit()
     if email_changed:
