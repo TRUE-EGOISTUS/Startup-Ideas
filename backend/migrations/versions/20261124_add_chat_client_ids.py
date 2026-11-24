@@ -1,7 +1,7 @@
 """Add idempotency keys to chat messages
 
 Revision ID: 20261124chatids
-Revises: 20261112channels
+Revises: 20261112attach
 Create Date: 2026-11-24
 """
 
