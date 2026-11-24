@@ -266,7 +266,13 @@ export function TaskChatPage() {
       };
       socket.onmessage = (event) => {
         if (socket !== websocketRef.current) return;
-        const raw = JSON.parse(event.data);
+        let raw: unknown;
+        try {
+          raw = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!raw || typeof raw !== "object") return;
         const payload = raw as Message & { type?: string; client_id?: string };
 
         // Bug 15: обработка реакции
@@ -299,8 +305,13 @@ export function TaskChatPage() {
 
         if (payload.type !== "message") return;
         setMessagesData((current) => {
-          // Уже есть такое сообщение — не дублируем
-          if (current.some((item) => item.id === payload.id)) return current;
+          // Обновляем запись с сервера (например, после загрузки вложения), не теряя localId.
+          const existingIndex = current.findIndex((item) => item.id === payload.id);
+          if (existingIndex >= 0) {
+            const next = [...current];
+            next[existingIndex] = { ...next[existingIndex], ...payload, localId: String(payload.id), deliveryStatus: undefined };
+            return next;
+          }
           // Ищем оптимистичное сообщение по client_id или локальному id
           let pendingIndex = payload.client_id
             ? current.findIndex((item) => item.localId === payload.client_id && (item.deliveryStatus === "sending" || item.deliveryStatus === "error"))
@@ -568,9 +579,8 @@ export function TaskChatPage() {
       await api.post(`/tasks/${taskId}/messages/${item.id}/reactions`, { emoji: "👍" });
     } catch (err: any) {
       // IntegrityError — реакция уже была/не была, откатываем UI
-      setMessagesData((current) =>
-        current.map((m) => m.id === item.id ? { ...m, reactions: item.reactions } : m)
-      );
+      // Обновляем данные с сервера, чтобы не откатывать чужие параллельные реакции.
+      void loadMessages({ silent: true });
     }
   };
 

@@ -103,6 +103,8 @@ export function ProjectChatPage() {
   const [text, setText] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [channel, setChannel] = useState("general");
+  const channelRef = useRef(channel);
+  channelRef.current = channel;
   const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
   const [projectLoading, setProjectLoading] = useState(true);
@@ -298,6 +300,19 @@ export function ProjectChatPage() {
           return;
         }
 
+        // Событие закрепления обновляет уже существующие сообщения, не создавая дубль.
+        if (payload.type === "message" && payload.channel && payload.channel !== channelRef.current) return;
+        if (payload.type === "reaction" && (payload as any).channel && (payload as any).channel !== channelRef.current) return;
+        if (payload.type === "pin_update") {
+          setMessagesData((current) => current.map((item) => item.id === payload.id
+            ? { ...item, is_pinned: payload.is_pinned, is_announcement: payload.is_announcement ?? item.is_announcement }
+            : item));
+          setAnnouncements((current) => current.map((item) => item.id === payload.id
+            ? { ...item, is_pinned: payload.is_pinned }
+            : item));
+          return;
+        }
+
         // Bug 15: обработка реакции
         if (payload.type === "reaction") {
           setMessagesData((current) => {
@@ -328,7 +343,12 @@ export function ProjectChatPage() {
 
         if (payload.type !== "message") return;
         setMessagesData((current) => {
-          if (current.some((item) => item.id === payload.id)) return current;
+          const existingIndex = current.findIndex((item) => item.id === payload.id);
+          if (existingIndex >= 0) {
+            const next = [...current];
+            next[existingIndex] = { ...next[existingIndex], ...payload, localId: String(payload.id), deliveryStatus: undefined };
+            return next;
+          }
           // Ищем оптимистичное сообщение по client_id — любой статус доставки (sending или error)
           let pendingIndex = payload.client_id
             ? current.findIndex((item) => item.deliveryStatus && item.localId === payload.client_id)
@@ -389,6 +409,25 @@ export function ProjectChatPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  const previousChannelRef = useRef(channel);
+  useEffect(() => {
+    const socket = websocketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "subscribe", channel }));
+    }
+    if (previousChannelRef.current !== channel) {
+      previousChannelRef.current = channel;
+      setMessagesData([]);
+      lastMessageIdRef.current = null;
+      setHasOlderMessages(false);
+      void loadMessages({ force: true });
+    }
+    // loadMessages is intentionally referenced from the latest render; channel changes
+    // are the only trigger for this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel, websocketConnected]);
+
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     const stream = streamRef.current;
@@ -546,9 +585,8 @@ export function ProjectChatPage() {
     try {
       await api.post(`/projects/${projectId}/messages/${item.id}/reactions`, { emoji: "👍" });
     } catch (err: any) {
-      setMessagesData((current) =>
-        current.map((m) => m.id === item.id ? { ...m, reactions: item.reactions } : m)
-      );
+      // Сверяемся с сервером, чтобы rollback не перезаписал более новые реакции.
+      void loadMessages({ silent: true, force: true });
     }
   };
 
