@@ -542,8 +542,59 @@ export function ProjectChatPage() {
     }
   };
 
-  const retryMessage = (item: ProjectChatMessage) => {
-    // Переотправляем сразу, не затирая то, что пользователь уже набрал в поле ввода
+  const retryMessage = async (item: ProjectChatMessage) => {
+    // При неудаче первого POST повторяем отправку текста и файла вместе,
+    // переиспользуя прежний client_id.
+    if (attachmentFile && projectId && item.id < 0) {
+      setSending(true);
+      setMessagesData((current) => current.map((messageItem) =>
+        messageItem.localId === item.localId
+          ? { ...messageItem, deliveryStatus: "sending" }
+          : messageItem
+      ));
+      try {
+        const { data } = await api.post<Message>(`/projects/${projectId}/messages`, {
+          text: item.text,
+          channel: item.channel || channel,
+          client_id: item.localId,
+        });
+        const baseMessage = { ...data, localId: String(data.id) } as ProjectChatMessage;
+        setMessagesData((current) => [
+          ...current.filter((messageItem) => messageItem.localId !== item.localId && messageItem.id !== data.id),
+          baseMessage,
+        ]);
+        bumpLastMessageId(data.id);
+
+        const formData = new FormData();
+        formData.append("file", attachmentFile);
+        try {
+          const attachmentResponse = await api.post<Message>(
+            `/projects/${projectId}/messages/${data.id}/attachment`,
+            formData
+          );
+          setMessagesData((current) => current.map((messageItem) =>
+            messageItem.id === data.id
+              ? { ...attachmentResponse.data, localId: String(data.id) } as ProjectChatMessage
+              : messageItem
+          ));
+          setAttachmentFile(null);
+        } catch {
+          message.error("Текст сообщения отправлен, но вложение не загрузилось. Прикрепите файл отдельным сообщением.");
+        }
+      } catch {
+        setMessagesData((current) => current.map((messageItem) =>
+          messageItem.localId === item.localId
+            ? { ...messageItem, deliveryStatus: "error" }
+            : messageItem
+        ));
+        message.error("Не удалось повторно отправить сообщение");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // Переотправляем сообщение с прежним идентификатором, не затирая введённый текст.
     setMessagesData((current) =>
       current.map((messageItem) => messageItem.localId === item.localId
         ? { ...messageItem, deliveryStatus: "sending" }
