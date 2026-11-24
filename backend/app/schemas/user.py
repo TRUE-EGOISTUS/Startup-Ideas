@@ -144,3 +144,7 @@ class AdminCompanyRead(UserRead):
 
 class AdminUserRead(UserRead):
     verification_rejection_reason: Optional[str] = None
+
+class ModeratorInvitationAccept(BaseModel):
+    username: str
+    password: str
