@@ -183,10 +183,14 @@ export function TaskChatPage() {
     void loadTask();
     void loadMessages();
     // Bug 16: помечаем как прочитанное при входе
-    void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
-    // Периодически помечаем как прочитанное
+    if (document.visibilityState === "visible") {
+      void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
+    }
+    // Не считаем сообщения прочитанными, пока вкладка находится в фоне.
     const readIntervalId = window.setInterval(() => {
-      if (!disposed) void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
+      if (!disposed && document.visibilityState === "visible") {
+        void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
+      }
     }, 30000);
 
     const pollMessages = () => {
@@ -360,6 +364,7 @@ export function TaskChatPage() {
       if (document.visibilityState === "visible") {
         connectWebSocket();
         pollMessages();
+        void api.post(`/tasks/${taskId}/messages/read`).catch(() => undefined);
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
