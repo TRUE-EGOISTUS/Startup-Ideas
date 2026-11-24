@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from jose import JWTError, jwt, ExpiredSignatureError
@@ -112,7 +113,7 @@ def get_current_user_from_token(token: str, db: Session) -> User:
         raise HTTPException(status_code=401, detail="Token expired")
     except JWTError:
         raise credentials_exception
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).filter(func.lower(User.email) == email.strip().lower()).first()
     if user is None:
         raise credentials_exception
     if not user.is_active:
@@ -153,7 +154,8 @@ def register(
     db: Session = Depends(get_db)
     ):
     
-    existing_email = db.query(User).filter(User.email == user_data.email).first()
+    normalized_email = user_data.email.strip().lower()
+    existing_email = db.query(User).filter(func.lower(User.email) == normalized_email).first()
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -163,7 +165,7 @@ def register(
     
     hashed = get_password_hash(user_data.password)
     new_user = User(
-        email=user_data.email,
+        email=normalized_email,
         username=user_data.username,
         hashed_password=hashed,
         role=user_data.role,
@@ -233,8 +235,9 @@ def login(
     db: Session = Depends(get_db)
 ):
     # Пытаемся найти пользователя по email или username
+    login_value = username.strip()
     user = db.query(User).filter(
-        (User.email == username) | (User.username == username)
+        (func.lower(User.email) == login_value.lower()) | (User.username == login_value)
     ).first()
 
     if not user or not verify_password(password, user.hashed_password):
