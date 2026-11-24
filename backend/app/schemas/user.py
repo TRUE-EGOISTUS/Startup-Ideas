@@ -22,7 +22,8 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
-    username: Optional[str] = None
+    username: Optional[str] = Field(default=None, min_length=3, max_length=100)
+    current_password: Optional[str] = Field(default=None, max_length=128)
 
 class UserRead(UserBase):
     id: int
