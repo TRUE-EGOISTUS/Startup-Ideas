@@ -879,6 +879,7 @@ async def send_project_message(
 @project_router.post("/{project_id}/messages/read")
 async def mark_project_messages_read(
     project_id: UUID,
+    channel: str | None = Query(None, min_length=1, max_length=40),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -888,18 +889,25 @@ async def mark_project_messages_read(
     ).first()
     if not member:
         raise HTTPException(status_code=403, detail="You are not a member")
+
     now = datetime.now(timezone.utc)
-    updated_count = db.query(ProjectMessage).filter(
+    query = db.query(ProjectMessage).filter(
         ProjectMessage.project_id == project_id,
         ProjectMessage.user_id != current_user.id,
         ProjectMessage.read_at.is_(None),
-    ).update({"read_at": now}, synchronize_session=False)
+    )
+    normalized_channel = _validate_channel(channel) if channel is not None else None
+    if normalized_channel is not None:
+        query = query.filter(ProjectMessage.channel == normalized_channel)
+
+    updated_count = query.update({"read_at": now}, synchronize_session=False)
     db.commit()
     if updated_count:
         await _broadcast_project_message(project_id, {
             "type": "read",
             "reader_id": current_user.id,
             "read_at": now.isoformat(),
+            "channel": normalized_channel,
         })
     return {"read_at": now.isoformat(), "updated_count": updated_count}
 
