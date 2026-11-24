@@ -112,10 +112,10 @@ def create_idea(
 def list_ideas(
     response: Response,
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    status: Optional[str] = None,
-    tag: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    status: Optional[str] = Query(None, pattern="^(open|paused)$"),
+    tag: Optional[str] = Query(None, max_length=100),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
     query = db.query(Idea).options(selectinload(Idea.author))
