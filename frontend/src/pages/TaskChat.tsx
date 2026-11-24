@@ -16,6 +16,7 @@ import {
   dayLabel,
   initials,
   messageContent,
+  mergeChatMessages,
   nextLocalId,
   resolveAttachmentUrl,
   resolveAvatarUrl,
@@ -123,35 +124,13 @@ export function TaskChatPage() {
           const stream = streamRef.current;
           preserveScrollRef.current = stream ? { top: stream.scrollTop, height: stream.scrollHeight } : null;
         }
-        setMessagesData((current) => {
-          const knownIds = new Set(current.map((item) => item.id));
-          return [...data.filter((item) => !knownIds.has(item.id)).map((item) => ({ ...item, localId: String(item.id) })), ...current];
-        });
+        setMessagesData((current) => mergeChatMessages(current, data));
         setHasOlderMessages(data.length === PAGE_SIZE);
       } else if (options.afterId !== undefined) {
-        setMessagesData((current) => {
-          const knownIds = new Set(current.map((item) => item.id));
-          return [...current, ...data.filter((item) => !knownIds.has(item.id)).map((item) => ({ ...item, localId: String(item.id) }))];
-        });
+        setMessagesData((current) => mergeChatMessages(current, data));
       } else {
         // Полная перезагрузка: не затираем локальные неотправленные сообщения
-        setMessagesData((current) => {
-          // REST history can finish after a newer WebSocket event. Merge by id
-          // instead of replacing messages that arrived while the request was in flight.
-          const merged = new Map(current.map((item) => [item.id, item]));
-          for (const item of data) {
-            const existing = merged.get(item.id);
-            merged.set(item.id, {
-              ...existing,
-              ...item,
-              localId: existing?.localId || String(item.id),
-              deliveryStatus: undefined,
-            });
-          }
-          return [...merged.values()].sort((a, b) =>
-            Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id
-          );
-        });
+        setMessagesData((current) => mergeChatMessages(current, data));
         setHasOlderMessages(data.length === PAGE_SIZE);
       }
 
@@ -506,6 +485,7 @@ export function TaskChatPage() {
       localId,
       task_id: taskId,
       user_id: user?.id ?? 0,
+      client_id: localId,
       text: messageText,
       created_at: new Date().toISOString(),
       sender_name: user?.username || user?.email || "Вы",
