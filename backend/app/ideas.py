@@ -197,6 +197,11 @@ def get_idea(
     idea = db.query(Idea).filter(Idea.id == idea_id).first()
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
+    # Match list visibility: paused ideas are visible only to their authors.
+    if idea.status == "paused" and (
+        current_user is None or idea.author_id != current_user.id
+    ):
+        raise HTTPException(status_code=404, detail="Idea not found")
     item = IdeaResponseSchema.model_validate(idea)
     item.responses_count = _count_responses(idea_id, db)
     item.team_count = _count_team_members(idea_id, db)
@@ -721,6 +726,10 @@ def accept_project_invite(
     ).first()
     if not invite:
         raise HTTPException(status_code=404, detail="Invitation not found")
+
+    project = invite.project
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     
     existing_member = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
