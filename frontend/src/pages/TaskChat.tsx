@@ -520,7 +520,7 @@ export function TaskChatPage() {
     }
   };
 
-  const retryMessage = (item: ChatMessage) => {
+  const retryMessage = async (item: ChatMessage) => {
     // Если сервер уже присвоил id, сообщение доставлено — снимаем только индикатор ошибки.
     if (item.id > 0) {
       setMessagesData((current) =>
