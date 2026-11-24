@@ -17,7 +17,7 @@ class UserBase(BaseModel):
     role: UserRole
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     username: str 
 
 class UserUpdate(BaseModel):
@@ -94,8 +94,8 @@ class CompanyProfileUpdate(BaseModel):
     contact_info: Optional[str] = None
 
 class ChangePasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
+    old_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 class PublicUserRead(BaseModel):
     id: int
