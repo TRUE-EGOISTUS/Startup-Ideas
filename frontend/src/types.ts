@@ -110,6 +110,7 @@ export type Message = {
   task_id?: string;
   project_id?: string;
   user_id: number;
+  client_id?: string | null;
   text: string;
   created_at: string;
   sender_name?: string | null;
