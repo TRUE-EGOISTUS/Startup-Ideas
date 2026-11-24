@@ -133,9 +133,21 @@ export function TaskChatPage() {
       } else {
         // Полная перезагрузка: не затираем локальные неотправленные сообщения
         setMessagesData((current) => {
-          const serverIds = new Set(data.map((item) => item.id));
-          const preserved = current.filter((item) => item.deliveryStatus && !serverIds.has(item.id));
-          return [...data.map((item) => ({ ...item, localId: String(item.id) })), ...preserved];
+          // REST history can finish after a newer WebSocket event. Merge by id
+          // instead of replacing messages that arrived while the request was in flight.
+          const merged = new Map(current.map((item) => [item.id, item]));
+          for (const item of data) {
+            const existing = merged.get(item.id);
+            merged.set(item.id, {
+              ...existing,
+              ...item,
+              localId: existing?.localId || String(item.id),
+              deliveryStatus: undefined,
+            });
+          }
+          return [...merged.values()].sort((a, b) =>
+            Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id
+          );
         });
         setHasOlderMessages(data.length === PAGE_SIZE);
       }
