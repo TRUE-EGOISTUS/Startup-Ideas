@@ -15,6 +15,8 @@ from typing import Any
 import re
 import os
 import uuid
+import ntpath
+import zipfile
 
 router = APIRouter(prefix="/tasks/{task_id}/messages", tags=["chat"])
 project_router = APIRouter(prefix="/projects", tags=["project-chat"])
@@ -36,6 +38,7 @@ def _serialize_project_message(msg: ProjectMessage) -> dict[str, Any]:
     result.pop("_sa_instance_state", None)
     return result
 project_chat_connections: dict[UUID, set[WebSocket]] = {}
+project_channel_subscriptions: dict[UUID, dict[WebSocket, str]] = {}
 
 def _message_metadata(message) -> dict:
     return {
@@ -115,15 +118,36 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
         await websocket.close(code=4001)
         return
 
+    # Авторизуем пользователя и проверяем доступ к задаче ДО accept и подписки.
+    # Иначе посторонний клиент мог подключиться и получать broadcast приватного чата.
+    from app.auth import get_current_user_from_token
+    preflight_db = SessionLocal()
+    try:
+        preflight_user = get_current_user_from_token(token, preflight_db)
+        preflight_task = preflight_db.query(Task).filter(Task.id == task_id).first()
+        if not preflight_task:
+            await websocket.close(code=4004)
+            return
+        if not _can_access_task_chat(preflight_task, preflight_user):
+            await websocket.close(code=4003)
+            return
+    except HTTPException:
+        await websocket.close(code=4001)
+        return
+    except Exception:
+        await websocket.close(code=1011)
+        return
+    finally:
+        preflight_db.close()
+
     try:
         await websocket.accept()
     except Exception:
         return
 
     task_chat_connections.setdefault(task_id, set()).add(websocket)
+    db = None
     try:
-        from app.auth import get_current_user_from_token
-
         while True:
             try:
                 raw = await websocket.receive_json()
@@ -133,7 +157,6 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
             if not isinstance(raw, dict):
                 await websocket.send_json({"type": "error", "detail": "Invalid message format"})
                 continue
-
             # Bug 13: валидация text — None → "", убираем "None"
             raw_text = raw.get("text")
             if raw_text is None:
@@ -200,7 +223,7 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
                 db.commit()
             except Exception:
-                pass
+                db.rollback()
 
             # Bug 11: try/except вокруг уведомлений и broadcast
             try:
@@ -214,8 +237,9 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 db.commit()
                 db.refresh(chat_message)
             except Exception:
-                # Не теряем сообщение — оно уже сохранено
-                pass
+                # Не теряем уже сохранённое сообщение. Ошибочную транзакцию
+                # уведомлений обязательно откатываем, чтобы сессия оставалась пригодной.
+                db.rollback()
 
             await _broadcast_task_message(task_id, {
                 "type": "message",
@@ -229,10 +253,26 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 "sender_avatar_url": chat_message.sender_avatar_url,
                 **_message_metadata(chat_message),
             })
+            db.close()
     except WebSocketDisconnect:
         pass
+    except Exception:
+        if db is not None:
+            try:
+                db.rollback()
+                db.close()
+            except Exception:
+                pass
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
     finally:
-        task_chat_connections.get(task_id, set()).discard(websocket)
+        connections = task_chat_connections.get(task_id)
+        if connections is not None:
+            connections.discard(websocket)
+            if not connections:
+                task_chat_connections.pop(task_id, None)
 
 @router.post("/", response_model=MessageOut)
 async def send_message(
@@ -259,15 +299,21 @@ async def send_message(
         raise HTTPException(status_code=400, detail="Reply target not found")
     message = Message(task_id=task_id, user_id=current_user.id, text=text, reply_to_id=message_data.reply_to_id)
     db.add(message)
-    recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
-    if recipient_id:
-        add_notification(
-            db, recipient_id, "task_message_received", "Новое сообщение по задаче",
-            f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
-        )
-    _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+    # Сначала надёжно сохраняем само сообщение: уведомления не должны отменять отправку.
     db.commit()
     db.refresh(message)
+
+    recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+    try:
+        if recipient_id:
+            add_notification(
+                db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+            )
+        _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+        db.commit()
+    except Exception:
+        db.rollback()  # сообщение уже сохранено, уведомления best-effort
     # Рассылка по WebSocket после сохранения сообщения по HTTP
     await _broadcast_task_message(task_id, {
         "type": "message",
@@ -357,15 +403,40 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
         await websocket.close(code=4001)
         return
 
+    # Проверяем токен, существование проекта и членство ДО accept/subscription.
+    from app.auth import get_current_user_from_token
+    preflight_db = SessionLocal()
+    try:
+        preflight_user = get_current_user_from_token(token, preflight_db)
+        preflight_project = preflight_db.query(Project).filter(Project.id == project_id).first()
+        if not preflight_project:
+            await websocket.close(code=4004)
+            return
+        preflight_member = preflight_db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == preflight_user.id,
+        ).first()
+        if not preflight_member:
+            await websocket.close(code=4003)
+            return
+    except HTTPException:
+        await websocket.close(code=4001)
+        return
+    except Exception:
+        await websocket.close(code=1011)
+        return
+    finally:
+        preflight_db.close()
+
     try:
         await websocket.accept()
     except Exception:
         return
 
     project_chat_connections.setdefault(project_id, set()).add(websocket)
+    project_channel_subscriptions.setdefault(project_id, {})[websocket] = "general"
+    db = None
     try:
-        from app.auth import get_current_user_from_token
-
         while True:
             try:
                 raw = await websocket.receive_json()
@@ -374,6 +445,16 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 continue
             if not isinstance(raw, dict):
                 await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                continue
+
+            if raw.get("type") == "subscribe":
+                try:
+                    subscribed_channel = _validate_channel(raw.get("channel"))
+                except HTTPException as exc:
+                    await websocket.send_json({"type": "error", "detail": exc.detail})
+                    continue
+                project_channel_subscriptions.setdefault(project_id, {})[websocket] = subscribed_channel
+                await websocket.send_json({"type": "subscribed", "channel": subscribed_channel})
                 continue
 
             # Bug 13: валидация text — None → "", убираем "None"
@@ -449,7 +530,7 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
                 db.commit()
             except Exception:
-                pass
+                db.rollback()
 
             # Bug 11: try/except вокруг уведомлений и broadcast
             try:
@@ -465,7 +546,8 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 db.commit()
                 db.refresh(chat_message)
             except Exception:
-                pass
+                # Отдельная транзакция уведомлений: rollback обязателен при ошибке.
+                db.rollback()
 
             await _broadcast_project_message(project_id, {
                 "type": "message",
@@ -481,17 +563,44 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 "sender_avatar_url": chat_message.sender_avatar_url,
                 **_project_message_metadata(chat_message),
             })
+            db.close()
     except WebSocketDisconnect:
         pass
+    except Exception:
+        if db is not None:
+            try:
+                db.rollback()
+                db.close()
+            except Exception:
+                pass
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
     finally:
-        project_chat_connections.get(project_id, set()).discard(websocket)
+        connections = project_chat_connections.get(project_id)
+        if connections is not None:
+            connections.discard(websocket)
+            if not connections:
+                project_chat_connections.pop(project_id, None)
+        subscriptions = project_channel_subscriptions.get(project_id)
+        if subscriptions is not None:
+            subscriptions.pop(websocket, None)
+            if not subscriptions:
+                project_channel_subscriptions.pop(project_id, None)
 
 async def _broadcast_project_message(project_id: UUID, payload: dict) -> None:
     connections = project_chat_connections.get(project_id)
     if not connections:
         return
     disconnected = []
+    subscriptions = project_channel_subscriptions.get(project_id, {})
+    event_type = payload.get("type")
+    event_channel = payload.get("channel")
     for connection in list(connections):  # list() — защита от изменения размера во время итерации
+        if event_type in {"message", "reaction"} and event_channel:
+            if subscriptions.get(connection, "general") != event_channel:
+                continue
         try:
             await connection.send_json(payload)
         except Exception:
@@ -529,16 +638,20 @@ async def announce_project_message(
 
     message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text, is_announcement=True, channel="announcements")
     db.add(message)
-    for project_member in db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id != current_user.id,
-    ).all():
-        add_notification(
-            db, project_member.user_id, "project_announcement", "Новое объявление проекта",
-            f"Новое объявление в проекте «{project.name}».", f"/projects/{project.id}/chat",
-        )
     db.commit()
     db.refresh(message)
+    try:
+        for project_member in db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id != current_user.id,
+        ).all():
+            add_notification(
+                db, project_member.user_id, "project_announcement", "Новое объявление проекта",
+                f"Новое объявление в проекте «{project.name}».", f"/projects/{project.id}/chat",
+            )
+        db.commit()
+    except Exception:
+        db.rollback()  # объявление остаётся сохранённым независимо от уведомлений
     await _broadcast_project_message(project_id, {
         "type": "announcement",
         "id": message.id,
@@ -570,12 +683,13 @@ def get_project_announcements(
     if not member:
         raise HTTPException(status_code=403, detail="You are not a member")
 
-    return db.query(ProjectMessage).options(
+    messages = db.query(ProjectMessage).options(
         joinedload(ProjectMessage.user).joinedload(User.specialist_profile),
         joinedload(ProjectMessage.user).joinedload(User.company_profile),
+        joinedload(ProjectMessage.reactions),
     ).filter(
         ProjectMessage.project_id == project_id,
-        ProjectMessage.is_announcement == True
+        ProjectMessage.is_announcement.is_(True)
     ).order_by(ProjectMessage.is_pinned.desc(), ProjectMessage.created_at.desc()).all()
     return [_serialize_project_message(msg) for msg in messages]
 
@@ -610,17 +724,21 @@ async def send_project_message(
     channel = _validate_channel(message_data.channel)
     message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text, reply_to_id=message_data.reply_to_id, channel=channel)
     db.add(message)
-    for project_member in db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id != current_user.id,
-    ).all():
-        add_notification(
-            db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
-            f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
-        )
-    _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
     db.commit()
     db.refresh(message)
+    try:
+        for project_member in db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id != current_user.id,
+        ).all():
+            add_notification(
+                db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+            )
+        _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+        db.commit()
+    except Exception:
+        db.rollback()  # не отменяем сохранённое сообщение из-за сбоя уведомлений
     # Рассылка по WebSocket после сохранения сообщения по HTTP
     await _broadcast_project_message(project_id, {
         "type": "message",
@@ -681,7 +799,7 @@ async def pin_project_message(
     db.refresh(message)
     # Рассылка по WebSocket после закрепления
     await _broadcast_project_message(project_id, {
-        "type": "message",
+        "type": "pin_update",
         "id": message.id,
         "project_id": str(message.project_id),
         "user_id": message.user_id,
@@ -773,46 +891,109 @@ CHAT_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 def _validate_filename(filename: str) -> str:
-    """Проверяем расширение и очищаем имя файла."""
+    """Validate extension and return a sanitized display filename."""
     if not filename:
         raise HTTPException(status_code=400, detail="File name is required")
-    safe_name = os.path.basename(filename).replace("\x00", "")
+    # basename on POSIX does not strip Windows separators; normalize both.
+    safe_name = ntpath.basename(filename.replace("/", "\\")).replace("\x00", "")
+    safe_name = re.sub(r"[\r\n\t]", " ", safe_name).strip(" .")
+    if not safe_name or len(safe_name) > 255:
+        raise HTTPException(status_code=400, detail="Invalid file name")
     ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
     if ext not in CHAT_ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed")
     return safe_name
 
 
-async def _store_chat_attachment(file: UploadFile) -> tuple[str, str]:
-    """Сохраняет вложение чата: читает чанками, проверяет расширение и размер."""
-    safe_name = _validate_filename(file.filename)
-    ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+def _validate_attachment_content(ext: str, content: bytes) -> None:
+    """Basic signature/content checks to reject extension-spoofed uploads."""
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    signatures = {
+        "png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+        "jpg": content.startswith(b"\xff\xd8\xff"),
+        "jpeg": content.startswith(b"\xff\xd8\xff"),
+        "gif": content.startswith((b"GIF87a", b"GIF89a")),
+        "webp": len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP",
+        "pdf": content.startswith(b"%PDF-"),
+        "doc": content.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"),
+        "xls": content.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"),
+        "zip": content.startswith(b"PK\x03\x04") or content.startswith(b"PK\x05\x06") or content.startswith(b"PK\x07\x08"),
+        "docx": content.startswith(b"PK\x03\x04"),
+        "xlsx": content.startswith(b"PK\x03\x04"),
+        "7z": content.startswith(b"7z\xbc\xaf\x27\x1c"),
+        "rar": content.startswith(b"Rar!\x1a\x07"),
+        "rtf": content.startswith(b"{\\rtf"),
+    }
+    if ext in signatures:
+        if not signatures[ext]:
+            raise HTTPException(status_code=400, detail="File content does not match its extension")
+        return
+    # Plain text/CSV: require valid UTF-8 and reject NUL bytes, which often
+    # indicate binary data masquerading as a text document.
+    if ext in {"txt", "csv"}:
+        try:
+            content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="Text file must be UTF-8 encoded")
+        if b"\x00" in content:
+            raise HTTPException(status_code=400, detail="Invalid text file")
+        return
+    raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    directory = "static/uploads/chat"
+
+async def _store_chat_attachment(file: UploadFile) -> tuple[str, str]:
+    """Stream to a temporary file, enforce size, validate signature, then atomically store."""
+    safe_name = _validate_filename(file.filename or "")
+    ext = safe_name.rsplit(".", 1)[-1].lower()
+    directory = os.path.abspath("static/uploads/chat")
     os.makedirs(directory, exist_ok=True)
     filename = f"{uuid.uuid4().hex}.{ext}"
     filepath = os.path.join(directory, filename)
-
+    temp_path = filepath + ".part"
     written = 0
-    while True:
-        chunk = await file.read(1024 * 256)  # 256 KB chunks
-        if not chunk:
-            break
-        written += len(chunk)
-        if written > CHAT_MAX_FILE_SIZE:
-            # Чистим частично записанный файл при превышении лимита
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            raise HTTPException(status_code=413, detail="File is too large (max 10 MB)")
-        with open(filepath, "ab") as target:
-            target.write(chunk)
-
-    if written == 0:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-        raise HTTPException(status_code=400, detail="Empty file")
-
-    return f"/static/uploads/chat/{filename}", safe_name
+    sample = bytearray()
+    try:
+        with open(temp_path, "wb") as target:
+            while True:
+                chunk = await file.read(1024 * 256)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > CHAT_MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="File is too large (max 10 MB)")
+                if len(sample) < 8192:
+                    sample.extend(chunk[:8192 - len(sample)])
+                target.write(chunk)
+        if written == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+        _validate_attachment_content(ext, bytes(sample))
+        # OOXML documents are ZIP containers; verify the expected document structure,
+        # not merely a ZIP signature (which could be any archive renamed to .docx/.xlsx).
+        if ext in {"docx", "xlsx"}:
+            try:
+                with zipfile.ZipFile(temp_path, "r") as archive:
+                    names = set(archive.namelist())
+                    required = "word/document.xml" if ext == "docx" else "xl/workbook.xml"
+                    if required not in names:
+                        raise HTTPException(status_code=400, detail="File content does not match its extension")
+            except zipfile.BadZipFile:
+                raise HTTPException(status_code=400, detail="Invalid Office document")
+        os.replace(temp_path, filepath)
+        return f"/static/uploads/chat/{filename}", safe_name
+    except Exception:
+        for candidate in (temp_path, filepath):
+            try:
+                if os.path.exists(candidate):
+                    os.remove(candidate)
+            except OSError:
+                pass
+        raise
+    finally:
+        try:
+            await file.close()
+        except Exception:
+            pass
 
 @router.post("/{message_id}/reactions")
 async def toggle_task_reaction(
@@ -860,9 +1041,20 @@ async def upload_task_attachment(
     ).first()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    message.attachment_url, message.attachment_name = await _store_chat_attachment(file)
-    db.commit()
-    db.refresh(message)
+    attachment_url, attachment_name = await _store_chat_attachment(file)
+    message.attachment_url, message.attachment_name = attachment_url, attachment_name
+    try:
+        db.commit()
+        db.refresh(message)
+    except Exception:
+        db.rollback()
+        stored_path = os.path.join("static/uploads/chat", os.path.basename(attachment_url))
+        try:
+            if os.path.exists(stored_path):
+                os.remove(stored_path)
+        except OSError:
+            pass
+        raise
     # Рассылка по WebSocket после загрузки вложения
     await _broadcast_task_message(task_id, {
         "type": "message",
@@ -908,7 +1100,7 @@ async def toggle_project_reaction(
     else:
         db.add(ProjectMessageReaction(message_id=message_id, user_id=current_user.id, emoji=emoji))
     db.commit()
-    payload = {"type": "reaction", "message_id": message_id, "emoji": emoji, "user_id": current_user.id, "active": active}
+    payload = {"type": "reaction", "message_id": message_id, "emoji": emoji, "user_id": current_user.id, "active": active, "channel": message.channel}
     await _broadcast_project_message(project_id, payload)
     return payload
 
@@ -930,9 +1122,20 @@ async def upload_project_attachment(
     ).first()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    message.attachment_url, message.attachment_name = await _store_chat_attachment(file)
-    db.commit()
-    db.refresh(message)
+    attachment_url, attachment_name = await _store_chat_attachment(file)
+    message.attachment_url, message.attachment_name = attachment_url, attachment_name
+    try:
+        db.commit()
+        db.refresh(message)
+    except Exception:
+        db.rollback()
+        stored_path = os.path.join("static/uploads/chat", os.path.basename(attachment_url))
+        try:
+            if os.path.exists(stored_path):
+                os.remove(stored_path)
+        except OSError:
+            pass
+        raise
     # Рассылка по WebSocket после загрузки вложения
     await _broadcast_project_message(project_id, {
         "type": "message",
