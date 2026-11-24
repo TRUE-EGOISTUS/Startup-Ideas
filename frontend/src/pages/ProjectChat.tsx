@@ -220,7 +220,7 @@ export function ProjectChatPage() {
     void loadMembers();
     // Периодически обновляем отметки прочтения только для выбранного канала.
     const readIntervalId = window.setInterval(() => {
-      if (!disposed) {
+      if (!disposed && document.visibilityState === "visible") {
         void api.post(`/projects/${projectId}/messages/read`, null, {
           params: { channel: channelRef.current },
         }).catch(() => undefined);
@@ -394,9 +394,12 @@ export function ProjectChatPage() {
     };
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") return;
-      // Вкладка снова видима: восстанавливаем сокет (раньше он не переподключался вообще)
+      // Вкладка снова видима: восстанавливаем сокет, историю и отметки прочтения.
       connectWebSocket();
       pollMessages();
+      void api.post(`/projects/${projectId}/messages/read`, null, {
+        params: { channel: channelRef.current },
+      }).catch(() => undefined);
     };
     connectWebSocket();
     const pollingId = window.setInterval(pollMessages, 4000);
@@ -426,7 +429,7 @@ export function ProjectChatPage() {
 
   // Mark only the messages from the channel currently being viewed as read.
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || document.visibilityState !== "visible") return;
     void api.post(`/projects/${projectId}/messages/read`, null, {
       params: { channel },
     }).catch(() => undefined);
