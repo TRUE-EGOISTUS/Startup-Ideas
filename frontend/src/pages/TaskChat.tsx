@@ -167,7 +167,7 @@ export function TaskChatPage() {
         message.error("Не удалось загрузить сообщения");
       }
     } finally {
-      if (ownsRequestLock) messagesRequestRef.current = false;
+      if (generation === generationRef.current && ownsRequestLock) messagesRequestRef.current = false;
       if (generation === generationRef.current && !options.silent) {
         setMessagesLoading(false);
       }
@@ -635,6 +635,7 @@ export function TaskChatPage() {
       const { data } = await api.get<Message[]>(`/tasks/${taskId}/messages`, { params: { search: query, limit: 200 } });
       if (requestId !== searchRequestRef.current || generation !== generationRef.current) return;
       setMessagesData(data.map((item) => ({ ...item, localId: String(item.id) })));
+      setHasOlderMessages(false);
     } catch {
       if (requestId === searchRequestRef.current && generation === generationRef.current) {
         message.error("Не удалось выполнить поиск");
