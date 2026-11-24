@@ -150,6 +150,46 @@ export type ReactionSummary = { emoji: string; count: number; user_ids: number[]
 
 export type ReplyTarget = { messageId: number; text: string; author: string };
 
+/**
+ * Merge REST history with WebSocket/local messages.
+ * A server row with the same client_id replaces its pending optimistic row,
+ * preventing duplicate bubbles when the WebSocket acknowledgement was missed.
+ */
+export function mergeChatMessages<T extends Message & {
+  localId: string;
+  deliveryStatus?: DeliveryStatus;
+}>(
+  current: T[],
+  incoming: Message[],
+): T[] {
+  const merged = new Map<number, T>(current.map((item) => [item.id, item]));
+
+  for (const item of incoming) {
+    const existingById = merged.get(item.id);
+    const pendingByClientId = item.client_id
+      ? [...merged.values()].find((candidate) =>
+          candidate.client_id === item.client_id && !!candidate.deliveryStatus
+        )
+      : undefined;
+    const existing = existingById || pendingByClientId;
+
+    if (pendingByClientId && pendingByClientId.id !== item.id) {
+      merged.delete(pendingByClientId.id);
+    }
+
+    merged.set(item.id, {
+      ...existing,
+      ...item,
+      localId: existing?.localId || String(item.id),
+      deliveryStatus: undefined,
+    } as T);
+  }
+
+  return [...merged.values()].sort((a, b) =>
+    Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Utility: unique local ID generator
 // ---------------------------------------------------------------------------
