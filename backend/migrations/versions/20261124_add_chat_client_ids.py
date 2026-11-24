@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = "20261124chatids"
-down_revision: Union[str, Sequence[str], None] = "20261112channels"
+down_revision: Union[str, Sequence[str], None] = "20261112attach"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
