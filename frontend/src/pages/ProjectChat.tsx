@@ -1,14 +1,30 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, Card, Input, Select, Tag, Typography, message } from "antd";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import type { Message, Project, ProjectMember } from "../types";
 import { useAuthStore } from "../store/auth";
+import {
+  CHAT_ALLOWED_EXTENSIONS,
+  CHAT_MAX_LENGTH,
+  MAX_FILE_SIZE,
+  PAGE_SIZE,
+  SEND_ACK_TIMEOUT_MS,
+  WS_PING_INTERVAL_MS,
+  dateKey,
+  dayLabel,
+  initials,
+  messageContent,
+  nextLocalId,
+  resolveAttachmentUrl,
+  resolveAvatarUrl,
+  scheduleReconnect,
+  sendPing,
+  timeLabel,
+  validateChatAttachment,
+} from "../lib/chat";
 import "./TaskChat.css";
 
-const CHAT_MAX_LENGTH = 2000;
-const PAGE_SIZE = 50;
-const SEND_ACK_TIMEOUT_MS = 10000;
 type DeliveryStatus = "sending" | "error";
 type ReactionSummary = { emoji: string; count: number; user_ids: number[] };
 
@@ -20,77 +36,16 @@ type ProjectChatMessage = Message & {
   channel?: string;
   reactions?: ReactionSummary[];
 };
-type SocketPayload = ProjectChatMessage & { type?: string; client_id?: string; message_id?: number; emoji?: string; user_id?: number; active?: boolean };
-
-let localCounter = 0;
-function nextLocalId() {
-  localCounter += 1;
-  return `local-${Date.now()}-${localCounter}`;
-}
-
-function parseUtcDate(value: string) {
-  return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`);
-}
-
-function dateKey(value: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(parseUtcDate(value));
-}
-
-function dayLabel(value: string) {
-  const today = dateKey(new Date().toISOString());
-  const yesterday = dateKey(new Date(Date.now() - 86400000).toISOString());
-  const key = dateKey(value);
-  if (key === today) return "Сегодня";
-  if (key === yesterday) return "Вчера";
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "Europe/Moscow"
-  }).format(parseUtcDate(value));
-}
-
-function timeLabel(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Moscow"
-  }).format(parseUtcDate(value));
-}
-
-function initials(name: string) {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
-}
-
-function messageContent(text: string) {
-  return text.split(/(https?:\/\/[^\s]+)/g).map((part, index) => {
-    if (!/^https?:\/\//i.test(part)) return part;
-    // Знаки препинания в конце ссылки ("см. https://x.com.") не должны попадать в href
-    const match = /^(.*?)([.,!?;:)\]}"'»]*)$/.exec(part);
-    const href = match ? match[1] : part;
-    const tail = match ? match[2] : "";
-    return (
-      <Fragment key={`${part}-${index}`}>
-        <a href={href} target="_blank" rel="noopener noreferrer">{href}</a>
-        {tail}
-      </Fragment>
-    );
-  });
-}
-
-function resolveAvatarUrl(value?: string | null) {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  const baseUrl = api.defaults.baseURL || window.location.origin;
-  return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
-}
-
-function resolveAttachmentUrl(value?: string | null) {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  const baseUrl = api.defaults.baseURL || window.location.origin;
-  return `${baseUrl.replace(/\/$/, "")}/${value.replace(/^\//, "")}`;
-}
+type SocketPayload = ProjectChatMessage & {
+  type?: string;
+  client_id?: string;
+  message_id?: number;
+  emoji?: string;
+  user_id?: number;
+  active?: boolean;
+  reader_id?: number;
+  read_at?: string;
+};
 
 export function ProjectChatPage() {
   const { projectId } = useParams();
@@ -103,6 +58,8 @@ export function ProjectChatPage() {
   const [text, setText] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [channel, setChannel] = useState("general");
+  const channelRef = useRef(channel);
+  channelRef.current = channel;
   const [searchText, setSearchText] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
   const [projectLoading, setProjectLoading] = useState(true);
@@ -124,6 +81,9 @@ export function ProjectChatPage() {
   const websocketRef = useRef<WebSocket | null>(null);
   const websocketConnectedRef = useRef(false);
   const websocketReconnectRef = useRef<number | null>(null);
+  const websocketPingRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const disposedRef = useRef(false);
 
   messagesDataRef.current = messagesData;
 
@@ -148,11 +108,12 @@ export function ProjectChatPage() {
 
   const loadMembers = async () => {
     if (!projectId) return;
+    const generation = generationRef.current;
     try {
       const { data } = await api.get<ProjectMember[]>(`/ideas/projects/${projectId}/members`);
-      setMembers(data);
+      if (generation === generationRef.current) setMembers(data);
     } catch {
-      message.error("Не удалось загрузить участников проекта");
+      if (generation === generationRef.current) message.error("Не удалось загрузить участников проекта");
     }
   };
 
@@ -240,7 +201,9 @@ export function ProjectChatPage() {
     preserveScrollRef.current = null;
     messagesRequestRef.current = false;
     olderRequestRef.current = false;
+    disposedRef.current = false;
     setProject(null);
+    setMembers([]);
     setMessagesData([]);
     setAnnouncements([]);
     setHasOlderMessages(false);
@@ -249,7 +212,6 @@ export function ProjectChatPage() {
     setMessagesLoading(true);
     void loadProject();
     void loadMembers();
-    void loadMessages();
     void api.post(`/projects/${projectId}/messages/read`).catch(() => undefined);
     // Периодически помечаем как прочитанное
     const readIntervalId = window.setInterval(() => {
@@ -276,6 +238,9 @@ export function ProjectChatPage() {
       websocketRef.current = socket;
       socket.onopen = () => {
         if (socket !== websocketRef.current) return;
+        reconnectAttemptRef.current = 0;
+        if (websocketPingRef.current !== null) window.clearInterval(websocketPingRef.current);
+        websocketPingRef.current = window.setInterval(() => sendPing(socket), WS_PING_INTERVAL_MS);
         websocketConnectedRef.current = true;
         setWebsocketConnected(true);
         // Подтягиваем сообщения, пропущенные пока соединения не было
@@ -292,9 +257,17 @@ export function ProjectChatPage() {
           return;
         }
         if (payload.type === "announcement") {
-          setAnnouncements((current) =>
-            current.some((item) => item.id === payload.id) ? current : [{ ...payload, localId: String(payload.id) }, ...current]
-          );
+          setAnnouncements((current) => {
+            const updated = current.some((item) => item.id === payload.id)
+              ? current.map((item) => item.id === payload.id
+                ? { ...item, ...payload, localId: String(payload.id) }
+                : item)
+              : [{ ...payload, localId: String(payload.id) }, ...current];
+            return updated.sort((a, b) =>
+              Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)) ||
+              Date.parse(b.created_at) - Date.parse(a.created_at)
+            );
+          });
           return;
         }
 
@@ -326,7 +299,21 @@ export function ProjectChatPage() {
           return;
         }
 
+        if (payload.type === "read") {
+          const readerId = payload.reader_id;
+          if (readerId !== undefined && payload.read_at) {
+            setMessagesData((current) => current.map((item) =>
+              item.user_id !== readerId && item.id > 0
+                ? { ...item, read_at: payload.read_at }
+                : item
+            ));
+          }
+          return;
+        }
+
         if (payload.type !== "message") return;
+        const messageChannel = payload.channel || "general";
+        if (messageChannel !== channelRef.current) return;
         setMessagesData((current) => {
           if (current.some((item) => item.id === payload.id)) return current;
           // Ищем оптимистичное сообщение по client_id — любой статус доставки (sending или error)
@@ -358,9 +345,17 @@ export function ProjectChatPage() {
         websocketRef.current = null;
         websocketConnectedRef.current = false;
         setWebsocketConnected(false);
-        if (!disposed && document.visibilityState === "visible") {
-          websocketReconnectRef.current = window.setTimeout(connectWebSocket, 3000);
+        if (websocketPingRef.current !== null) {
+          window.clearInterval(websocketPingRef.current);
+          websocketPingRef.current = null;
         }
+        scheduleReconnect(
+          connectWebSocket,
+          websocketReconnectRef,
+          disposedRef,
+          () => document.visibilityState === "visible",
+          reconnectAttemptRef.current++
+        );
       };
     };
     const onVisibilityChange = () => {
@@ -374,11 +369,16 @@ export function ProjectChatPage() {
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       disposed = true;
+      disposedRef.current = true;
       window.clearInterval(pollingId);
       window.clearInterval(readIntervalId);
       if (websocketReconnectRef.current !== null) {
         window.clearTimeout(websocketReconnectRef.current);
         websocketReconnectRef.current = null;
+      }
+      if (websocketPingRef.current !== null) {
+        window.clearInterval(websocketPingRef.current);
+        websocketPingRef.current = null;
       }
       const socket = websocketRef.current;
       websocketRef.current = null;
@@ -389,6 +389,18 @@ export function ProjectChatPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // История загружается отдельно для выбранного канала.
+  useEffect(() => {
+    if (!projectId) return;
+    lastMessageIdRef.current = null;
+    previousLastIdRef.current = null;
+    shouldStickToBottomRef.current = true;
+    setMessagesData([]);
+    setHasOlderMessages(false);
+    void loadMessages({ force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel, projectId]);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     const stream = streamRef.current;
@@ -442,7 +454,7 @@ export function ProjectChatPage() {
       return;
     }
     try {
-      const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText, channel });
+      const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText, channel, client_id: localId });
       const serverMessage: ProjectChatMessage = { ...data, localId: String(data.id) };
       setMessagesData((current) =>
         current.some((item) => item.id === data.id)
@@ -459,7 +471,7 @@ export function ProjectChatPage() {
     const messageText = text.trim();
     if (!projectId || !messageText || sending || messageText.length > CHAT_MAX_LENGTH) return;
     const localId = nextLocalId();
-    const optimisticId = -localCounter;
+    const optimisticId = -Date.now();
     shouldStickToBottomRef.current = true;
     setMessagesData((current) => [...current, {
       id: optimisticId, localId, project_id: projectId, user_id: user?.id ?? 0, text: messageText,
@@ -469,12 +481,34 @@ export function ProjectChatPage() {
     setSending(true);
     try {
       if (attachmentFile) {
-        const { data } = await api.post<Message>(`/projects/${projectId}/messages`, { text: messageText, channel });
-        const formData = new FormData();
-        formData.append("file", attachmentFile);
-        const attachmentResponse = await api.post<Message>(`/projects/${projectId}/messages/${data.id}/attachment`, formData);
-        setMessagesData((current) => current.map((item) => item.localId === localId ? { ...attachmentResponse.data, localId: String(data.id) } : item));
+        const fileToUpload = attachmentFile;
+        const { data } = await api.post<Message>(`/projects/${projectId}/messages`, {
+          text: messageText, channel, client_id: localId,
+        });
+        const baseMessage = { ...data, localId: String(data.id) } as ProjectChatMessage;
+        setMessagesData((current) => [
+          ...current.filter((item) => item.localId !== localId && item.id !== data.id),
+          baseMessage,
+        ]);
+        bumpLastMessageId(data.id);
+        setText("");
         setAttachmentFile(null);
+
+        const formData = new FormData();
+        formData.append("file", fileToUpload);
+        try {
+          const attachmentResponse = await api.post<Message>(
+            `/projects/${projectId}/messages/${data.id}/attachment`,
+            formData
+          );
+          const attachedMessage = { ...attachmentResponse.data, localId: String(data.id) } as ProjectChatMessage;
+          setMessagesData((current) => [
+            ...current.filter((item) => item.id !== data.id && item.localId !== localId),
+            attachedMessage,
+          ]);
+        } catch {
+          message.error("Сообщение отправлено, но файл не загрузился. Прикрепите файл отдельным сообщением.");
+        }
       } else {
         await deliverMessage(localId, messageText);
       }
@@ -712,8 +746,22 @@ export function ProjectChatPage() {
               }}
               placeholder="Напишите сообщение" />
             <div className="task-chat-composer-footer">
-              <label className="task-chat-file-picker">📎 Прикрепить файл<input type="file" onChange={(event) => setAttachmentFile(event.target.files?.[0] || null)} /></label>
-              {attachmentFile && <span className="task-chat-attachment-name">{attachmentFile.name}</span>}
+              <label className="task-chat-file-picker">📎 Прикрепить файл<input
+                type="file"
+                accept={CHAT_ALLOWED_EXTENSIONS.map((extension) => `.${extension}`).join(",")}
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  if (!file) return setAttachmentFile(null);
+                  const error = validateChatAttachment(file);
+                  if (error) {
+                    message.error(error);
+                    event.target.value = "";
+                    return;
+                  }
+                  setAttachmentFile(file);
+                }}
+              /></label>
+              {attachmentFile && <span className="task-chat-attachment-name">{attachmentFile.name} ({(attachmentFile.size / 1024 / 1024).toFixed(1)} МБ, максимум {(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)} МБ)</span>}
               <span className="task-chat-counter">{text.length}/{CHAT_MAX_LENGTH} · Enter - отправить, Shift+Enter - новая строка</span>
               <Button type="primary" size="large" loading={sending} disabled={!text.trim() || text.length > CHAT_MAX_LENGTH} onClick={() => void onSendMessage()}>Отправить</Button>
             </div>
