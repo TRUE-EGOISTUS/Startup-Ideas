@@ -485,7 +485,6 @@ export function ProjectChatPage() {
         bumpLastMessageId(data.id);
         setText("");
         setAttachmentFile(null);
-        setReplyTo(null);
 
         const formData = new FormData();
         formData.append("file", fileToUpload);
