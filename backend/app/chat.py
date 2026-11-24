@@ -1032,6 +1032,25 @@ def _validate_filename(filename: str) -> str:
     return safe_name
 
 
+def _delete_chat_attachment(attachment_url: str | None) -> None:
+    """Удаляет только файл вложения, созданный этим модулем, без выхода из каталога."""
+    prefix = "/static/uploads/chat/"
+    if not attachment_url or not attachment_url.startswith(prefix):
+        return
+    filename = attachment_url[len(prefix):]
+    if not re.fullmatch(r"[a-f0-9]{32}\.[a-z0-9]+", filename):
+        return
+
+    directory = os.path.abspath(os.path.join("static", "uploads", "chat"))
+    filepath = os.path.abspath(os.path.join(directory, filename))
+    if os.path.commonpath([filepath, directory]) != directory:
+        return
+    try:
+        os.remove(filepath)
+    except FileNotFoundError:
+        pass
+
+
 async def _store_chat_attachment(file: UploadFile) -> tuple[str, str]:
     """Сохраняет вложение чата: читает чанками, проверяет расширение и размер."""
     safe_name = _validate_filename(file.filename)
@@ -1169,9 +1188,19 @@ async def upload_task_attachment(
     ).first()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    message.attachment_url, message.attachment_name = await _store_chat_attachment(file)
-    db.commit()
-    db.refresh(message)
+    previous_attachment_url = message.attachment_url
+    new_attachment_url, new_attachment_name = await _store_chat_attachment(file)
+    message.attachment_url = new_attachment_url
+    message.attachment_name = new_attachment_name
+    try:
+        db.commit()
+        db.refresh(message)
+    except Exception:
+        db.rollback()
+        _delete_chat_attachment(new_attachment_url)
+        raise
+    if previous_attachment_url and previous_attachment_url != new_attachment_url:
+        _delete_chat_attachment(previous_attachment_url)
     # Рассылка по WebSocket после загрузки вложения
     await _broadcast_task_message(task_id, {
         "type": "message",
@@ -1247,9 +1276,19 @@ async def upload_project_attachment(
     ).first()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    message.attachment_url, message.attachment_name = await _store_chat_attachment(file)
-    db.commit()
-    db.refresh(message)
+    previous_attachment_url = message.attachment_url
+    new_attachment_url, new_attachment_name = await _store_chat_attachment(file)
+    message.attachment_url = new_attachment_url
+    message.attachment_name = new_attachment_name
+    try:
+        db.commit()
+        db.refresh(message)
+    except Exception:
+        db.rollback()
+        _delete_chat_attachment(new_attachment_url)
+        raise
+    if previous_attachment_url and previous_attachment_url != new_attachment_url:
+        _delete_chat_attachment(previous_attachment_url)
     # Рассылка по WebSocket после загрузки вложения
     await _broadcast_project_message(project_id, {
         "type": "message",
