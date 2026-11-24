@@ -62,6 +62,7 @@ export function TaskChatPage() {
   const disposedRef = useRef(false);
   const generationRef = useRef(0);
   const searchQueryRef = useRef("");
+  const searchRequestRef = useRef(0);
   const preserveScrollRef = useRef<{ top: number; height: number } | null>(null);
 
   const loadTask = async () => {
@@ -181,6 +182,9 @@ export function TaskChatPage() {
     let disposed = false;
     disposedRef.current = false;
     generationRef.current += 1;
+    searchRequestRef.current += 1;
+    searchQueryRef.current = "";
+    setSearchText("");
 
     // Сброс состояния предыдущей задачи
     lastMessageIdRef.current = null;
@@ -618,6 +622,8 @@ export function TaskChatPage() {
   const searchMessages = async (value: string) => {
     if (!taskId) return;
     const query = value.trim();
+    const requestId = ++searchRequestRef.current;
+    const generation = generationRef.current;
     searchQueryRef.current = query.toLocaleLowerCase();
     if (!query) {
       setMessagesData([]);
@@ -627,9 +633,12 @@ export function TaskChatPage() {
     }
     try {
       const { data } = await api.get<Message[]>(`/tasks/${taskId}/messages`, { params: { search: query, limit: 200 } });
+      if (requestId !== searchRequestRef.current || generation !== generationRef.current) return;
       setMessagesData(data.map((item) => ({ ...item, localId: String(item.id) })));
     } catch {
-      message.error("Не удалось выполнить поиск");
+      if (requestId === searchRequestRef.current && generation === generationRef.current) {
+        message.error("Не удалось выполнить поиск");
+      }
     }
   };
 
