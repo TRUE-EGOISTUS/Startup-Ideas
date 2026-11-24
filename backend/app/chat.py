@@ -115,6 +115,23 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
         await websocket.close(code=4001)
         return
 
+    from app.auth import get_current_user_from_token
+    auth_db = SessionLocal()
+    try:
+        current_user = get_current_user_from_token(token, auth_db)
+        task = auth_db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            await websocket.close(code=4004)
+            return
+        if not _can_access_task_chat(task, current_user):
+            await websocket.close(code=4003)
+            return
+    except HTTPException:
+        await websocket.close(code=4001)
+        return
+    finally:
+        auth_db.close()
+
     try:
         await websocket.accept()
     except Exception:
@@ -122,8 +139,6 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
 
     task_chat_connections.setdefault(task_id, set()).add(websocket)
     try:
-        from app.auth import get_current_user_from_token
-
         while True:
             try:
                 raw = await websocket.receive_json()
@@ -191,17 +206,6 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
             db.commit()
             db.refresh(chat_message)
 
-            # Bug 16: помечаем чужие сообщения как прочитанные при получении
-            try:
-                db.query(Message).filter(
-                    Message.task_id == task_id,
-                    Message.user_id != current_user.id,
-                    Message.read_at.is_(None),
-                ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
-                db.commit()
-            except Exception:
-                pass
-
             # Bug 11: try/except вокруг уведомлений и broadcast
             try:
                 recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
@@ -214,10 +218,10 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 db.commit()
                 db.refresh(chat_message)
             except Exception:
-                # Не теряем сообщение — оно уже сохранено
-                pass
+                # Сообщение уже сохранено; откатываем только неудачную запись уведомлений.
+                db.rollback()
 
-            await _broadcast_task_message(task_id, {
+            payload = {
                 "type": "message",
                 "client_id": raw.get("client_id"),
                 "id": chat_message.id,
@@ -228,11 +232,20 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 "sender_name": chat_message.sender_name,
                 "sender_avatar_url": chat_message.sender_avatar_url,
                 **_message_metadata(chat_message),
-            })
+            }
+            db.close()
+            await _broadcast_task_message(task_id, payload)
     except WebSocketDisconnect:
         pass
     finally:
-        task_chat_connections.get(task_id, set()).discard(websocket)
+        active_db = locals().get("db")
+        if active_db is not None:
+            active_db.close()
+        connections = task_chat_connections.get(task_id)
+        if connections is not None:
+            connections.discard(websocket)
+            if not connections:
+                task_chat_connections.pop(task_id, None)
 
 @router.post("/", response_model=MessageOut)
 async def send_message(
@@ -357,6 +370,27 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
         await websocket.close(code=4001)
         return
 
+    from app.auth import get_current_user_from_token
+    auth_db = SessionLocal()
+    try:
+        current_user = get_current_user_from_token(token, auth_db)
+        project = auth_db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            await websocket.close(code=4004)
+            return
+        member = auth_db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == current_user.id,
+        ).first()
+        if not member:
+            await websocket.close(code=4003)
+            return
+    except HTTPException:
+        await websocket.close(code=4001)
+        return
+    finally:
+        auth_db.close()
+
     try:
         await websocket.accept()
     except Exception:
@@ -364,8 +398,6 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
 
     project_chat_connections.setdefault(project_id, set()).add(websocket)
     try:
-        from app.auth import get_current_user_from_token
-
         while True:
             try:
                 raw = await websocket.receive_json()
@@ -440,17 +472,6 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
             db.commit()
             db.refresh(chat_message)
 
-            # Bug 16: помечаем чужие сообщения как прочитанные при получении
-            try:
-                db.query(ProjectMessage).filter(
-                    ProjectMessage.project_id == project_id,
-                    ProjectMessage.user_id != current_user.id,
-                    ProjectMessage.read_at.is_(None),
-                ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
-                db.commit()
-            except Exception:
-                pass
-
             # Bug 11: try/except вокруг уведомлений и broadcast
             try:
                 for project_member in db.query(ProjectMember).filter(
@@ -465,9 +486,9 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 db.commit()
                 db.refresh(chat_message)
             except Exception:
-                pass
+                db.rollback()
 
-            await _broadcast_project_message(project_id, {
+            payload = {
                 "type": "message",
                 "client_id": raw.get("client_id"),
                 "id": chat_message.id,
@@ -480,11 +501,20 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 "sender_name": chat_message.sender_name,
                 "sender_avatar_url": chat_message.sender_avatar_url,
                 **_project_message_metadata(chat_message),
-            })
+            }
+            db.close()
+            await _broadcast_project_message(project_id, payload)
     except WebSocketDisconnect:
         pass
     finally:
-        project_chat_connections.get(project_id, set()).discard(websocket)
+        active_db = locals().get("db")
+        if active_db is not None:
+            active_db.close()
+        connections = project_chat_connections.get(project_id)
+        if connections is not None:
+            connections.discard(websocket)
+            if not connections:
+                project_chat_connections.pop(project_id, None)
 
 async def _broadcast_project_message(project_id: UUID, payload: dict) -> None:
     connections = project_chat_connections.get(project_id)
