@@ -208,6 +208,15 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                 await websocket.close(code=4003)
                 return
 
+            client_id = raw.get("client_id")
+            if client_id is not None and (
+                not isinstance(client_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", client_id)
+            ):
+                db.close()
+                await websocket.send_json({"type": "error", "detail": "Invalid client_id"})
+                continue
+
             if reply_to_id is not None:
                 exists = db.query(Message).filter(
                     Message.id == reply_to_id, Message.task_id == task_id
@@ -217,34 +226,43 @@ async def task_chat_websocket(websocket: WebSocket, task_id: UUID):
                     await websocket.send_json({"type": "error", "detail": "Reply target not found"})
                     continue
 
-            chat_message = Message(
-                task_id=task_id,
-                user_id=current_user.id,
-                text=text,
-                reply_to_id=reply_to_id,
-            )
-            db.add(chat_message)
-            db.commit()
-            db.refresh(chat_message)
+            chat_message = None
+            if client_id:
+                chat_message = db.query(Message).filter(
+                    Message.task_id == task_id,
+                    Message.user_id == current_user.id,
+                    Message.client_id == client_id,
+                ).first()
 
-            # Bug 11: try/except вокруг уведомлений и broadcast
-            try:
-                recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
-                if recipient_id:
-                    add_notification(
-                        db, recipient_id, "task_message_received", "Новое сообщение по задаче",
-                        f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
-                    )
-                _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+            is_new_message = chat_message is None
+            if is_new_message:
+                chat_message = Message(
+                    task_id=task_id,
+                    user_id=current_user.id,
+                    text=text,
+                    reply_to_id=reply_to_id,
+                    client_id=client_id,
+                )
+                db.add(chat_message)
                 db.commit()
                 db.refresh(chat_message)
-            except Exception:
-                # Сообщение уже сохранено; откатываем только неудачную запись уведомлений.
-                db.rollback()
+
+                try:
+                    recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+                    if recipient_id:
+                        add_notification(
+                            db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                            f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+                        )
+                    _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+                    db.commit()
+                    db.refresh(chat_message)
+                except Exception:
+                    db.rollback()
 
             payload = {
                 "type": "message",
-                "client_id": raw.get("client_id"),
+                "client_id": client_id,
                 "id": chat_message.id,
                 "task_id": str(chat_message.task_id),
                 "user_id": chat_message.user_id,
@@ -291,20 +309,38 @@ async def send_message(
         Message.id == message_data.reply_to_id, Message.task_id == task_id
     ).first():
         raise HTTPException(status_code=400, detail="Reply target not found")
-    message = Message(task_id=task_id, user_id=current_user.id, text=text, reply_to_id=message_data.reply_to_id)
-    db.add(message)
-    recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
-    if recipient_id:
-        add_notification(
-            db, recipient_id, "task_message_received", "Новое сообщение по задаче",
-            f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+
+    message = None
+    if message_data.client_id:
+        message = db.query(Message).filter(
+            Message.task_id == task_id,
+            Message.user_id == current_user.id,
+            Message.client_id == message_data.client_id,
+        ).first()
+
+    if message is None:
+        message = Message(
+            task_id=task_id,
+            user_id=current_user.id,
+            text=text,
+            reply_to_id=message_data.reply_to_id,
+            client_id=message_data.client_id,
         )
-    _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
-    db.commit()
-    db.refresh(message)
-    # Рассылка по WebSocket после сохранения сообщения по HTTP
+        db.add(message)
+        recipient_id = task.author_id if current_user.id != task.author_id else task.assigned_to_id
+        if recipient_id:
+            add_notification(
+                db, recipient_id, "task_message_received", "Новое сообщение по задаче",
+                f"Новое сообщение в задаче «{task.title}».", f"/tasks/{task.id}/chat",
+            )
+        _notify_mentions(db, text, current_user.id, f"/tasks/{task.id}/chat", "Упоминание в задаче")
+        db.commit()
+        db.refresh(message)
+
+    # Повторный запрос с тем же client_id возвращает ту же запись, а не дублирует её.
     await _broadcast_task_message(task_id, {
         "type": "message",
+        "client_id": message_data.client_id,
         "id": message.id,
         "task_id": str(message.task_id),
         "user_id": message.user_id,
@@ -501,6 +537,15 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                 await websocket.close(code=4003)
                 return
 
+            client_id = raw.get("client_id")
+            if client_id is not None and (
+                not isinstance(client_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", client_id)
+            ):
+                db.close()
+                await websocket.send_json({"type": "error", "detail": "Invalid client_id"})
+                continue
+
             if reply_to_id is not None:
                 exists = db.query(ProjectMessage).filter(
                     ProjectMessage.id == reply_to_id, ProjectMessage.project_id == project_id
@@ -510,36 +555,46 @@ async def project_chat_websocket(websocket: WebSocket, project_id: UUID):
                     await websocket.send_json({"type": "error", "detail": "Reply target not found"})
                     continue
 
-            chat_message = ProjectMessage(
-                project_id=project_id,
-                user_id=current_user.id,
-                text=text,
-                reply_to_id=reply_to_id,
-                channel=channel,
-            )
-            db.add(chat_message)
-            db.commit()
-            db.refresh(chat_message)
+            chat_message = None
+            if client_id:
+                chat_message = db.query(ProjectMessage).filter(
+                    ProjectMessage.project_id == project_id,
+                    ProjectMessage.user_id == current_user.id,
+                    ProjectMessage.client_id == client_id,
+                ).first()
 
-            # Bug 11: try/except вокруг уведомлений и broadcast
-            try:
-                for project_member in db.query(ProjectMember).filter(
-                    ProjectMember.project_id == project_id,
-                    ProjectMember.user_id != current_user.id,
-                ).all():
-                    add_notification(
-                        db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
-                        f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
-                    )
-                _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+            is_new_message = chat_message is None
+            if is_new_message:
+                chat_message = ProjectMessage(
+                    project_id=project_id,
+                    user_id=current_user.id,
+                    text=text,
+                    reply_to_id=reply_to_id,
+                    channel=channel,
+                    client_id=client_id,
+                )
+                db.add(chat_message)
                 db.commit()
                 db.refresh(chat_message)
-            except Exception:
-                db.rollback()
+
+                try:
+                    for project_member in db.query(ProjectMember).filter(
+                        ProjectMember.project_id == project_id,
+                        ProjectMember.user_id != current_user.id,
+                    ).all():
+                        add_notification(
+                            db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                            f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+                        )
+                    _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+                    db.commit()
+                    db.refresh(chat_message)
+                except Exception:
+                    db.rollback()
 
             payload = {
                 "type": "message",
-                "client_id": raw.get("client_id"),
+                "client_id": client_id,
                 "id": chat_message.id,
                 "project_id": str(chat_message.project_id),
                 "user_id": chat_message.user_id,
@@ -688,22 +743,41 @@ async def send_project_message(
     ).first():
         raise HTTPException(status_code=400, detail="Reply target not found")
     channel = _validate_channel(message_data.channel)
-    message = ProjectMessage(project_id=project_id, user_id=current_user.id, text=text, reply_to_id=message_data.reply_to_id, channel=channel)
-    db.add(message)
-    for project_member in db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id != current_user.id,
-    ).all():
-        add_notification(
-            db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
-            f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+
+    message = None
+    if message_data.client_id:
+        message = db.query(ProjectMessage).filter(
+            ProjectMessage.project_id == project_id,
+            ProjectMessage.user_id == current_user.id,
+            ProjectMessage.client_id == message_data.client_id,
+        ).first()
+
+    if message is None:
+        message = ProjectMessage(
+            project_id=project_id,
+            user_id=current_user.id,
+            text=text,
+            reply_to_id=message_data.reply_to_id,
+            channel=channel,
+            client_id=message_data.client_id,
         )
-    _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
-    db.commit()
-    db.refresh(message)
-    # Рассылка по WebSocket после сохранения сообщения по HTTP
+        db.add(message)
+        for project_member in db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id != current_user.id,
+        ).all():
+            add_notification(
+                db, project_member.user_id, "project_message_received", "Новое сообщение в проекте",
+                f"Новое сообщение в проекте «{project.name}».", f"/projects/{project.id}/chat",
+            )
+        _notify_mentions(db, text, current_user.id, f"/projects/{project.id}/chat", "Упоминание в проекте")
+        db.commit()
+        db.refresh(message)
+
+    # Повторный запрос с тем же client_id не создаёт копию сообщения.
     await _broadcast_project_message(project_id, {
         "type": "message",
+        "client_id": message_data.client_id,
         "id": message.id,
         "project_id": str(message.project_id),
         "user_id": message.user_id,
